@@ -30,14 +30,12 @@ enum QuotaTheme {
 enum FeedbackTone: Equatable {
     case neutral
     case success
-    case warning
     case error
 
     var color: Color {
         switch self {
         case .neutral: return .secondary
         case .success: return QuotaTheme.brand
-        case .warning: return .orange
         case .error: return .red
         }
     }
@@ -46,4 +44,29 @@ enum FeedbackTone: Equatable {
 struct FeedbackMessage {
     var text: String
     var tone: FeedbackTone
+}
+
+/// Sizing for the status item, kept out of the app delegate so it can be
+/// exercised on its own.
+enum MenuBarMetrics {
+    /// Fits the item to what it actually draws.
+    ///
+    /// A fixed 36pt was enough for "57%" and silently clipped anything longer —
+    /// balance sources read out things like "¥1234". Capped as well as floored:
+    /// a menu bar extra that grows without limit is how items get pushed off a
+    /// crowded bar, or under the notch.
+    static let minimumWidth: CGFloat = 32
+    static let maximumWidth: CGFloat = 68
+
+    /// The top line is a fixed "AI"; only the value line varies. Computed
+    /// rather than stored: a stored NSFont is shared mutable state as far as
+    /// the concurrency checker is concerned.
+    static var topLabelFont: NSFont { .systemFont(ofSize: 8.5, weight: .medium) }
+
+    static func width(for readout: NSAttributedString) -> CGFloat {
+        let label = ("AI" as NSString).size(withAttributes: [.font: topLabelFont]).width
+        let padding: CGFloat = 6  // 2pt leading + 1pt trailing, plus breathing room
+        let needed = ceil(max(label, readout.size().width)) + padding
+        return min(max(needed, minimumWidth), maximumWidth)
+    }
 }

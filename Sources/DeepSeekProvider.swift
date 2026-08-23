@@ -41,7 +41,7 @@ struct DeepSeekProvider: QuotaProvider {
             return key
         }
         throw QuotaError.message(
-            "钥匙串里没有 DeepSeek API Key。请打开「⋯ → 数据源设置」安全保存。")
+            L("deepseek.no_api_key"))
     }
 
     // MARK: - API
@@ -51,30 +51,32 @@ struct DeepSeekProvider: QuotaProvider {
         req.setValue("Bearer \(key)", forHTTPHeaderField: "Authorization")
         req.setValue("application/json", forHTTPHeaderField: "Accept")
         req.timeoutInterval = 20
+        // A quota is the one thing that must never come from a cache.
+        req.cachePolicy = .reloadIgnoringLocalCacheData
 
         let (data, response) = try await URLSession.shared.data(for: req)
         guard let http = response as? HTTPURLResponse else {
-            throw QuotaError.message("DeepSeek: 无响应")
+            throw QuotaError.message(L("deepseek.no_response"))
         }
         guard http.statusCode == 200 else {
             if http.statusCode == 401 {
-                throw QuotaError.message("DeepSeek: API key 无效或已撤销 (401)")
+                throw QuotaError.message(L("deepseek.unauthorized"))
             }
             throw QuotaError.message("DeepSeek: HTTP \(http.statusCode)")
         }
         guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
-            throw QuotaError.message("DeepSeek: 返回不是 JSON")
+            throw QuotaError.message(L("deepseek.not_json"))
         }
         return json
     }
 
     private func apply(_ json: [String: Any], to card: inout ProviderCard) {
         let available = json["is_available"] as? Bool ?? false
-        card.subtitle = available ? "余额可用" : "余额不足 / 不可用"
+        card.subtitle = L(available ? "deepseek.available" : "deepseek.unavailable")
 
         let infos = json["balance_infos"] as? [[String: Any]] ?? []
         guard !infos.isEmpty else {
-            card.error = "DeepSeek 未返回余额信息"
+            card.error = L("deepseek.no_balance_info")
             return
         }
         // The API returns a row per currency; the unfunded ones are all zero and
@@ -89,22 +91,22 @@ struct DeepSeekProvider: QuotaProvider {
 
             // Only the first row carries the key; with several funded
             // currencies the menu bar shows the primary one.
-            card.windows.append(QuotaWindow(label: "余额（\(currency)）",
+            card.windows.append(QuotaWindow(label: L("deepseek.balance_label", currency),
                                             key: card.windows.isEmpty
                                                 ? DeepSeekProvider.balanceKey : nil,
                                             usedPercent: nil,
                                             resetsAt: nil,
                                             value: "\(symbol)\(total)"))
             if Double(granted) ?? 0 > 0 {
-                card.notes.append("赠送额度：\(symbol)\(granted)")
+                card.notes.append(ProviderNote(text: L("deepseek.granted", "\(symbol)\(granted)")))
             }
             if Double(toppedUp) ?? 0 > 0 {
-                card.notes.append("充值余额：\(symbol)\(toppedUp)")
+                card.notes.append(ProviderNote(text: L("deepseek.topped_up", "\(symbol)\(toppedUp)")))
             }
         }
         if !available {
-            card.notes.append("余额为零时 API 会拒绝请求")
+            card.notes.append(ProviderNote(text: L("deepseek.zero_rejects")))
         }
-        card.notes.append("token 用量明细见网页控制台")
+        card.notes.append(ProviderNote(text: L("deepseek.token_detail")))
     }
 }

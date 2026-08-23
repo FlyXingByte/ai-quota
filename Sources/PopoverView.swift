@@ -33,7 +33,7 @@ struct PopoverView: View {
         .sheet(isPresented: $showSettings) {
             SetupView(store: store) {
                 showSettings = false
-                feedback = FeedbackMessage(text: "数据源设置已更新", tone: .success)
+                feedback = FeedbackMessage(text: L("feedback.sources_updated"), tone: .success)
             }
             .frame(width: 420)
         }
@@ -52,7 +52,7 @@ struct PopoverView: View {
             VStack(alignment: .leading, spacing: 0) {
                 Text("AI Quota")
                     .font(.system(size: 13, weight: .semibold))
-                Text("额度概览")
+                Text(L("panel.subtitle"))
                     .font(.system(size: 9))
                     .foregroundStyle(.secondary)
             }
@@ -78,7 +78,7 @@ struct PopoverView: View {
                 .frame(width: 24, height: 24)
                 .background(Color.primary.opacity(0.055), in: Circle())
                 .contentShape(Circle())
-                .help("立即刷新")
+                .help(L("panel.refresh_now"))
             }
         }
         .padding(.horizontal, 14)
@@ -89,14 +89,14 @@ struct PopoverView: View {
     private var content: some View {
         if !store.config.setupCompleted {
             SetupView(store: store) {
-                feedback = FeedbackMessage(text: "首次设置完成", tone: .success)
+                feedback = FeedbackMessage(text: L("feedback.setup_done"), tone: .success)
             }
         } else if store.snapshot.cards.isEmpty {
             HStack {
                 Spacer()
                 VStack(spacing: 6) {
                     ProgressView().controlSize(.small)
-                    Text("正在读取…").font(.caption).foregroundStyle(.secondary)
+                    Text(L("panel.loading")).font(.caption).foregroundStyle(.secondary)
                 }
                 Spacer()
             }
@@ -124,13 +124,13 @@ struct PopoverView: View {
                 .font(.system(size: 10))
                 .foregroundStyle(.secondary)
             VStack(alignment: .leading, spacing: 3) {
-                Text("OpenCode 还没配工作区 ID")
+                Text(L("panel.workspace_missing_title"))
                     .font(.system(size: 11))
-                Text("从 opencode.ai/workspace/<这一段>/go 获取，或直接粘贴完整 URL。")
+                Text(L("panel.workspace_missing_detail"))
                     .font(.system(size: 10))
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
-                Button("打开数据源设置…") { showSettings = true }
+                Button(L("panel.open_source_settings")) { showSettings = true }
                     .buttonStyle(.borderless)
                     .font(.system(size: 10))
             }
@@ -145,41 +145,39 @@ struct PopoverView: View {
 
     private var footer: some View {
         HStack(spacing: 10) {
-            Text(feedback?.text
-                 ?? (store.config.setupCompleted
-                     ? "更新于 \(Fmt.stamp(store.snapshot.updatedAt))" : "等待首次设置"))
+            Text(feedback?.text ?? status)
                 .font(.system(size: 10))
-                .foregroundStyle(feedback?.tone.color ?? .secondary)
+                .foregroundStyle(feedback?.tone.color ?? (hasStaleCard ? .orange : .secondary))
                 .lineLimit(1)
             Spacer()
             Menu {
                 if store.config.setupCompleted {
-                    Button("立即刷新") { Task { await store.refresh() } }
+                    Button(L("panel.refresh_now")) { Task { await store.refresh() } }
                     Divider()
                     // A Picker inside a Menu renders as a submenu with a checkmark
                     // on the active row — the native way to offer this choice.
-                    Picker("菜单栏显示", selection: menuBarSource) {
-                        ForEach(MenuBarSource.allCases, id: \.self) { source in
+                    Picker(L("menu.menu_bar_shows"), selection: menuBarSource) {
+                        ForEach(store.config.availableMenuBarSources, id: \.self) { source in
                             Text(source.title).tag(source)
                         }
                     }
                     Divider()
-                    Button("数据源设置…") { showSettings = true }
-                    Toggle("开机自动启动", isOn: $launchAtLogin)
-                    Button("打开高级配置…") { openConfigFile() }
+                    Button(L("menu.source_settings")) { showSettings = true }
+                    Toggle(L("menu.launch_at_login"), isOn: $launchAtLogin)
+                    Button(L("menu.open_advanced_config")) { openConfigFile() }
                 } else {
-                    Button("完成首次设置") { }
+                    Button(L("menu.finish_setup")) { }
                         .disabled(true)
                 }
                 Divider()
-                Button("退出 AI Quota", action: onQuit)
+                Button(L("menu.quit"), action: onQuit)
             } label: {
                 Image(systemName: "ellipsis.circle")
             }
             .menuStyle(.borderlessButton)
             .menuIndicator(.hidden)
             .fixedSize()
-            .help("更多")
+            .help(L("panel.more"))
             .onChange(of: launchAtLogin) { _, enabled in
                 setLaunchAtLogin(enabled)
             }
@@ -188,15 +186,25 @@ struct PopoverView: View {
         .padding(.vertical, 8)
     }
 
+    private var hasStaleCard: Bool { store.snapshot.cards.contains { $0.isStale } }
+
+    /// The timestamp is when we last *tried*. Saying only that, while showing
+    /// numbers kept from an earlier read, would overstate how current they are.
+    private var status: String {
+        guard store.config.setupCompleted else { return L("panel.awaiting_setup") }
+        let stamp = L("panel.updated_at", Fmt.stamp(store.snapshot.updatedAt))
+        return hasStaleCard ? stamp + L("panel.some_data_kept") : stamp
+    }
+
     private var menuBarSource: Binding<MenuBarSource> {
         Binding(get: { store.config.menuBar },
                 set: { chosen in
                     do {
                         try store.setMenuBarSource(chosen)
-                        feedback = FeedbackMessage(text: "菜单栏显示：\(chosen.title)",
+                        feedback = FeedbackMessage(text: L("feedback.menu_bar_set", chosen.title),
                                                    tone: .success)
                     } catch {
-                        feedback = FeedbackMessage(text: "设置保存失败：\(error.localizedDescription)",
+                        feedback = FeedbackMessage(text: L("feedback.save_failed", error.localizedDescription),
                                                    tone: .error)
                     }
                 })
@@ -209,10 +217,11 @@ struct PopoverView: View {
             } else {
                 try SMAppService.mainApp.unregister()
             }
-            feedback = FeedbackMessage(text: enabled ? "已加入登录项" : "已移出登录项",
+            feedback = FeedbackMessage(text: L(enabled ? "feedback.login_item_added"
+                                              : "feedback.login_item_removed"),
                                        tone: .success)
         } catch {
-            feedback = FeedbackMessage(text: "登录项设置失败：\(error.localizedDescription)",
+            feedback = FeedbackMessage(text: L("feedback.login_item_failed", error.localizedDescription),
                                        tone: .error)
             launchAtLogin = SMAppService.mainApp.status == .enabled
         }
@@ -227,7 +236,7 @@ struct PopoverView: View {
         if !NSWorkspace.shared.open(Config.fileURL) {
             NSWorkspace.shared.activateFileViewerSelecting([Config.fileURL])
         }
-        feedback = FeedbackMessage(text: "保存配置后，下次刷新自动生效", tone: .neutral)
+        feedback = FeedbackMessage(text: L("feedback.config_hint"), tone: .neutral)
     }
 }
 
@@ -266,27 +275,36 @@ private struct CardView: View {
                     .buttonStyle(.plain)
                     .frame(width: 24, height: 24)
                     .contentShape(Rectangle())
-                    .help("在浏览器里打开")
+                    .help(L("panel.open_in_browser"))
                 }
             }
 
             if let error = card.error {
-                Label(error, systemImage: "exclamationmark.triangle.fill")
-                    .font(.system(size: 10))
-                    .foregroundStyle(.orange)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .padding(7)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .background(Color.orange.opacity(0.09),
-                                in: RoundedRectangle(cornerRadius: 7, style: .continuous))
+                VStack(alignment: .leading, spacing: 3) {
+                    Label(error, systemImage: "exclamationmark.triangle.fill")
+                        .fixedSize(horizontal: false, vertical: true)
+                    if card.isStale {
+                        // The numbers below are real, just not current. Say so
+                        // plainly rather than letting them read as live.
+                        Text(L("panel.stale_notice")
+                             + (Fmt.since(card.readAt).map { L("panel.stale_notice_age", $0) } ?? ""))
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                .font(.system(size: 10))
+                .foregroundStyle(.orange)
+                .padding(7)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(Color.orange.opacity(0.09),
+                            in: RoundedRectangle(cornerRadius: 7, style: .continuous))
             }
 
             ForEach(card.windows) { window in
-                WindowRow(window: window)
+                WindowRow(window: window, isStale: card.isStale)
             }
 
-            ForEach(card.notes, id: \.self) { note in
-                NoteRow(text: note)
+            ForEach(card.notes) { note in
+                NoteRow(note: note)
             }
         }
         .padding(11)
@@ -301,17 +319,15 @@ private struct CardView: View {
 }
 
 private struct NoteRow: View {
-    let text: String
+    let note: ProviderNote
 
-    private var needsAttention: Bool {
-        text.contains("未启用") || text.contains("已用尽")
-    }
+    private var needsAttention: Bool { note.needsAttention }
 
     var body: some View {
         HStack(alignment: .firstTextBaseline, spacing: 5) {
             Image(systemName: needsAttention ? "pause.circle.fill" : "info.circle")
                 .font(.system(size: 9))
-            Text(text)
+            Text(note.text)
                 .font(.system(size: 10))
                 .fixedSize(horizontal: false, vertical: true)
         }
@@ -321,9 +337,13 @@ private struct NoteRow: View {
 
 private struct WindowRow: View {
     let window: QuotaWindow
+    var isStale = false
 
     private var color: Color {
         guard let remaining = window.remainingPercent else { return .secondary }
+        // A kept reading stays readable but stops competing with live ones —
+        // except when it is critical, which still deserves the alarm colour.
+        if isStale, remaining > 10 { return .secondary }
         return QuotaTheme.quotaColor(for: remaining)
     }
 
@@ -346,7 +366,7 @@ private struct WindowRow: View {
                             Image(systemName: statusSymbol)
                                 .font(.system(size: 9))
                         }
-                        Text("剩余 \(Int(remaining))%")
+                        Text(L("panel.remaining", Int(remaining)))
                             .font(.system(size: 12, weight: .semibold).monospacedDigit())
                     }
                     .foregroundStyle(color)
@@ -369,7 +389,7 @@ private struct WindowRow: View {
                 }
                 .frame(height: 6)
                 .animation(.easeOut(duration: 0.25), value: remaining)
-                .accessibilityLabel("\(window.label)，剩余 \(Int(remaining))%")
+                .accessibilityLabel(L("panel.remaining_accessible", window.label, Int(remaining)))
             }
             if let reset = Fmt.relative(window.resetsAt) {
                 Text(reset)

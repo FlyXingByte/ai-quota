@@ -2,7 +2,7 @@ import Foundation
 
 enum AppInfo {
     static let name = "AI Quota"
-    static let version = "1.3.3"
+    static let version = "1.4.0"
     static let bundleID = "com.flyx.aiquota"
 }
 
@@ -16,11 +16,24 @@ enum MenuBarSource: String, CaseIterable, Hashable {
 
     var title: String {
         switch self {
-        case .codexWeekly: return "Codex 每周额度"
-        case .claudeWeekly: return "Claude 每周额度"
-        case .opencodeWeekly: return "OpenCode 每周额度"
-        case .deepseekBalance: return "DeepSeek 余额"
-        case .tightest: return "剩余最少的"
+        case .codexWeekly: return L("source.codex_weekly")
+        case .claudeWeekly: return L("source.claude_weekly")
+        case .opencodeWeekly: return L("source.opencode_weekly")
+        case .deepseekBalance: return L("source.deepseek_balance")
+        case .tightest: return L("source.tightest")
+        }
+    }
+
+    /// Whether this source has a provider behind it right now. Offering one
+    /// that is switched off buys a permanent silent stand-in: the menu bar
+    /// quietly reads out something else and nothing says why.
+    func isAvailable(in config: Config) -> Bool {
+        switch self {
+        case .codexWeekly: return config.showCodex
+        case .claudeWeekly: return config.showClaude
+        case .opencodeWeekly: return config.showOpenCode && !config.opencodeWorkspaceID.isEmpty
+        case .deepseekBalance: return config.showDeepSeek
+        case .tightest: return true
         }
     }
 
@@ -80,6 +93,16 @@ struct Config: Codable {
         try encoder.encode(self).write(to: Config.fileURL, options: .atomic)
         try FileManager.default.setAttributes([.posixPermissions: 0o600],
                                               ofItemAtPath: Config.fileURL.path)
+    }
+
+    /// What the menu bar picker offers: the sources that can actually produce a
+    /// number, plus whatever is selected right now — a hand-edited config may
+    /// name a switched-off source, and the picker still has to be able to show
+    /// its own selection.
+    var availableMenuBarSources: [MenuBarSource] {
+        var list = MenuBarSource.allCases.filter { $0.isAvailable(in: self) }
+        if !list.contains(menuBar) { list.append(menuBar) }
+        return list
     }
 
     var providers: [QuotaProvider] {

@@ -14,7 +14,12 @@ enum ChromeCookies {
     static let chromeRoot = FileManager.default.homeDirectoryForCurrentUser
         .appendingPathComponent("Library/Application Support/Google/Chrome")
 
-    private static var cachedKey: Data?
+    /// The derived AES key, cached so a refresh every few minutes does not
+    /// re-hit the keychain (which can prompt). Behind a lock: providers refresh
+    /// concurrently, and an unguarded static here is a data race the compiler
+    /// rejects outright in the Swift 6 language mode.
+    private static let keyGate = NSLock()
+    nonisolated(unsafe) private static var cachedKey: Data?
 
     // MARK: - Keychain
 
@@ -40,7 +45,11 @@ enum ChromeCookies {
     }
 
     static func encryptionKey() throws -> Data {
-        if let cachedKey { return cachedKey }
+        keyGate.lock()
+        let cached = cachedKey
+        keyGate.unlock()
+        if let cached { return cached }
+
         let pw = try safeStoragePassword()
         let salt = Array("saltysalt".utf8)
         var derived = [UInt8](repeating: 0, count: 16)
@@ -55,11 +64,23 @@ enum ChromeCookies {
             }
         }
         guard result == kCCSuccess else {
-            throw QuotaError.message("PBKDF2 派生密钥失败 (\(result))")
+            throw QuotaError.message(L("cookies.pbkdf2_failed", Int(result)))
         }
         let key = Data(derived)
+        keyGate.lock()
         cachedKey = key
+        keyGate.unlock()
         return key
+    }
+
+    /// Forgets the derived key so the next read re-derives it. Chrome rotates
+    /// its Safe Storage password on a keychain reset, and a cached key from
+    /// before that point decrypts nothing — which without this looked like
+    /// "not logged in" for the rest of the process's life.
+    static func invalidateKey() {
+        keyGate.lock()
+        cachedKey = nil
+        keyGate.unlock()
     }
 
     // MARK: - Decryption
@@ -127,21 +148,29 @@ enum ChromeCookies {
     static func cookies(matching hostPattern: String) throws -> [String: String] {
         let key = try encryptionKey()
         var best: [String: String] = [:]
+        var rowsSeen = 0
         var lastError: Error?
 
         for profile in profileDirectories() {
             do {
-                let jar = try readProfile(profile, hostPattern: hostPattern, key: key)
-                if jar.count > best.count { best = jar }
+                let result = try readProfile(profile, hostPattern: hostPattern, key: key)
+                rowsSeen += result.rows
+                if result.jar.count > best.count { best = result.jar }
             } catch {
                 lastError = error
             }
         }
+        // Matching rows that all failed to decrypt means the cached key no
+        // longer matches Chrome's. Dropping it only in this case keeps a
+        // genuinely logged-out user from re-deriving (and possibly re-prompting)
+        // on every refresh.
+        if best.isEmpty, rowsSeen > 0 { invalidateKey() }
         if best.isEmpty, let lastError { throw lastError }
         return best
     }
 
-    private static func readProfile(_ profile: URL, hostPattern: String, key: Data) throws -> [String: String] {
+    private static func readProfile(_ profile: URL, hostPattern: String,
+                                    key: Data) throws -> (jar: [String: String], rows: Int) {
         let fm = FileManager.default
         let src = profile.appendingPathComponent("Cookies")
         let scratch = fm.temporaryDirectory
@@ -161,20 +190,22 @@ enum ChromeCookies {
 
         var db: OpaquePointer?
         guard sqlite3_open_v2(copy.path, &db, SQLITE_OPEN_READONLY, nil) == SQLITE_OK else {
-            throw QuotaError.message("无法打开 Cookies 数据库 (\(profile.lastPathComponent))")
+            throw QuotaError.message(L("cookies.db_open_failed", profile.lastPathComponent))
         }
         defer { sqlite3_close(db) }
 
         var stmt: OpaquePointer?
         let sql = "SELECT host_key, name, encrypted_value FROM cookies WHERE host_key LIKE ?"
         guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK else {
-            throw QuotaError.message("Cookies 查询失败")
+            throw QuotaError.message(L("cookies.query_failed"))
         }
         defer { sqlite3_finalize(stmt) }
         sqlite3_bind_text(stmt, 1, hostPattern, -1, unsafeBitCast(-1, to: sqlite3_destructor_type.self))
 
         var jar: [String: String] = [:]
+        var rows = 0
         while sqlite3_step(stmt) == SQLITE_ROW {
+            rows += 1
             guard let hostC = sqlite3_column_text(stmt, 0),
                   let nameC = sqlite3_column_text(stmt, 1) else { continue }
             let host = String(cString: hostC)
@@ -186,14 +217,14 @@ enum ChromeCookies {
                 jar[name] = value
             }
         }
-        return jar
+        return (jar, rows)
     }
 
     /// Ready-to-send `Cookie:` header value.
     static func header(matching hostPattern: String) throws -> String {
         let jar = try cookies(matching: hostPattern)
         guard !jar.isEmpty else {
-            throw QuotaError.message("Chrome 里没找到 \(hostPattern) 的 cookie，请先在浏览器登录。")
+            throw QuotaError.message(L("cookies.none_found", hostPattern))
         }
         return jar.map { "\($0.key)=\($0.value)" }.joined(separator: "; ")
     }

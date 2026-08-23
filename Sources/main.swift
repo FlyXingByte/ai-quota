@@ -8,18 +8,8 @@ import SwiftUI
 let args = CommandLine.arguments
 
 if args.contains("--help") || args.contains("-h") {
-    print("""
-    \(AppInfo.name) \(AppInfo.version)
-
-      --probe            读取全部配额并打印为文本，然后退出
-      --dump <来源>      抓取原始响应（opencode | billing | codex | claude）
-      --snapshot         把面板离屏渲染成 ~/Desktop/ai-quota-preview.png
-      --snapshot-setup   把无凭据的首次设置界面渲染到 /private/tmp
-      --config           打印配置文件路径和当前内容
-      --identity         打印 App 身份、图标和登录项状态
-      --self-test        运行离线发布自检
-    不带参数时以菜单栏 App 运行。
-    """)
+    print("\(AppInfo.name) \(AppInfo.version)\n")
+    print(L("cli.help"))
     exit(0)
 }
 
@@ -46,7 +36,7 @@ if args.contains("--snapshot-setup") {
             hosting.cacheDisplay(in: hosting.bounds, to: rep)
             if let png = rep.representation(using: .png, properties: [:]) {
                 try? png.write(to: out)
-                print("已渲染首次设置界面 -> \(out.path)")
+                print("Rendered the first-run screen -> \(out.path)")
             }
         }
         window.orderOut(nil)
@@ -97,7 +87,56 @@ if args.contains("--self-test") {
     var legacyAll = fresh
     legacyAll.menuBarSource = "all"
     expect(legacyAll.menuBar == .codexWeekly, "legacy all mode migrates to compact default")
-    expect(AppInfo.version == "1.3.3", "version")
+    // A window's identity has to come from what it is: a per-instance UUID gave
+    // every row a new SwiftUI identity on each refresh, so the bar jumped
+    // instead of animating.
+    expect(QuotaWindow(label: "weekly-label", key: CodexProvider.weeklyKey).id
+           == CodexProvider.weeklyKey, "window identity follows the key")
+    expect(QuotaWindow(label: "5h-label").id == "5h-label", "window identity falls back to the label")
+
+    expect(fresh.availableMenuBarSources == [.codexWeekly, .claudeWeekly, .tightest],
+           "menu bar picker hides sources with no provider")
+    var withOpenCode = fresh
+    withOpenCode.showOpenCode = true
+    expect(!withOpenCode.availableMenuBarSources.contains(.opencodeWeekly),
+           "opencode stays hidden until it has a workspace ID")
+
+    let balance = NSAttributedString(string: "¥1234", attributes: [
+        .font: NSFont.monospacedDigitSystemFont(ofSize: 13, weight: .regular),
+    ])
+    expect(MenuBarMetrics.width(for: balance) >= ceil(balance.size().width),
+           "status item fits a balance readout")
+    expect(MenuBarMetrics.width(for: NSAttributedString(string: String(repeating: "8", count: 40)))
+           == MenuBarMetrics.maximumWidth, "status item width is capped")
+
+    // The tables have to be in the bundle and wired up: an unresolved key comes
+    // back as itself, which is exactly what a missing .lproj looks like.
+    expect(L("panel.subtitle") != "panel.subtitle", "string table is loaded")
+    expect(L("window.weekly") != "window.weekly", "provider labels resolve")
+
+    // Both languages must define the same keys — a key present in one only
+    // shows up as a raw identifier for everyone using the other.
+    func keys(forLocalization language: String) -> Set<String>? {
+        guard let path = Bundle.main.path(forResource: "Localizable", ofType: "strings",
+                                          inDirectory: nil, forLocalization: language),
+              let table = NSDictionary(contentsOfFile: path) as? [String: String]
+        else { return nil }
+        return Set(table.keys)
+    }
+    if let english = keys(forLocalization: "en"),
+       let chinese = keys(forLocalization: "zh-Hans") {
+        expect(!english.isEmpty, "English table is not empty")
+        expect(english == chinese,
+               "en and zh-Hans define the same keys"
+               + " (only in one: \(english.symmetricDifference(chinese).sorted()))")
+    } else {
+        failures.append("both string tables are readable")
+    }
+
+    // Not a literal to bump: the point is that the bundle the build stamped
+    // agrees with the source it was built from.
+    expect(Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String
+           == AppInfo.version, "bundle version matches AppInfo.version")
 
     if failures.isEmpty {
         print("Self-test passed.")
@@ -135,7 +174,7 @@ if args.contains("--identity") {
 
 if args.contains("--config") {
     let cfg = Config.load()
-    print("配置文件: \(Config.fileURL.path)")
+    print("config file: \(Config.fileURL.path)")
     let encoder = JSONEncoder()
     encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
     print(String(data: (try? encoder.encode(cfg)) ?? Data(), encoding: .utf8) ?? "")
@@ -163,26 +202,26 @@ if args.contains("--probe") {
                     let filled = Int((remaining / 100 * 20).rounded())
                     line += String(repeating: "█", count: filled)
                         + String(repeating: "░", count: 20 - filled)
-                        + String(format: " 剩余 %3d%%", Int(remaining))
+                        + String(format: " %3d%% left", Int(remaining))
                 } else if let value = w.value {
                     line += value
                 }
                 if let reset = Fmt.relative(w.resetsAt) { line += "  (\(reset))" }
                 print(line)
             }
-            for note in card.notes { print("    – \(note)") }
+            for note in card.notes { print("    – \(note.text)") }
         }
 
-        print("\n═══ 菜单栏 ═══")
+        print("\n═══ menu bar ═══")
         var snapshot = Snapshot()
         snapshot.cards = cards
         if let headline = snapshot.headline(for: config.menuBar) {
-            print("  来源: \(config.menuBar.title) [\(config.menuBarSource)] → \(headline.label)")
-            print("  显示: \(headline.tag) \(headline.text)"
+            print("  source: \(config.menuBar.title) [\(config.menuBarSource)] → \(headline.label)")
+            print("  shows: \(headline.tag) \(headline.text)"
                   + (headline.isStandIn
-                     ? "   ⚠︎ \(config.menuBar.title)不可用，这是临时代替" : ""))
+                     ? "   ⚠︎ \(config.menuBar.title) unavailable, this is a stand-in" : ""))
         } else {
-            print("  来源: \(config.menuBarSource) → 暂无可显示的额度")
+            print("  source: \(config.menuBarSource) → nothing to show")
         }
         print("")
         semaphore.signal()
@@ -200,7 +239,7 @@ if let dumpIndex = args.firstIndex(of: "--dump") {
             let cfg = Config.load()
             do {
                 let cookie = try ChromeCookies.header(matching: "%opencode.ai")
-                print("cookie 条数: \(cookie.split(separator: ";").count)")
+                print("cookies: \(cookie.split(separator: ";").count)")
                 let page = which == "billing" ? "billing" : "go"
                 let url = URL(string: "https://opencode.ai/workspace/\(cfg.opencodeWorkspaceID)/\(page)")!
                 var req = URLRequest(url: url)
@@ -212,13 +251,13 @@ if let dumpIndex = args.firstIndex(of: "--dump") {
                 let path = FileManager.default.temporaryDirectory
                     .appendingPathComponent("aiquota-opencode-\(page).html")
                 try data.write(to: path)
-                print("已写入 \(path.path)")
+                print("written to \(path.path)")
             } catch {
                 print("✗ \(error.localizedDescription)")
             }
         case "codex":
             let card = await CodexProvider().fetch()
-            print(card.error ?? "ok: \(card.windows.count) 个窗口, notes=\(card.notes)")
+            print(card.error ?? "ok: \(card.windows.count) windows, notes=\(card.notes.map(\.text))")
         case "claude":
             do {
                 let json = try await ClaudeProvider().rawUsage()
@@ -229,7 +268,7 @@ if let dumpIndex = args.firstIndex(of: "--dump") {
                 print("✗ \(error.localizedDescription)")
             }
         default:
-            print("未知来源: \(which)")
+            print("unknown source: \(which)")
         }
         semaphore.signal()
     }
@@ -269,12 +308,12 @@ if args.contains("--snapshot") {
             hosting.cacheDisplay(in: hosting.bounds, to: rep)
             if let png = rep.representation(using: .png, properties: [:]) {
                 try? png.write(to: out)
-                print("已渲染 \(Int(hosting.bounds.width))x\(Int(hosting.bounds.height)) -> \(out.path)")
+                print("rendered \(Int(hosting.bounds.width))x\(Int(hosting.bounds.height)) -> \(out.path)")
             } else {
-                print("✗ PNG 编码失败")
+                print("✗ PNG encoding failed")
             }
         } else {
-            print("✗ 渲染失败")
+            print("✗ render failed")
         }
         window.orderOut(nil)
         flag.done = true
@@ -305,7 +344,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
     private var cancellable: AnyCancellable?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        statusItem = NSStatusBar.system.statusItem(withLength: 36)
+        statusItem = NSStatusBar.system.statusItem(withLength: MenuBarMetrics.minimumWidth)
         statusItem.button?.action = #selector(togglePopover)
         statusItem.button?.target = self
         configureStatusLabels()
@@ -346,25 +385,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { [weak self] in
             MainActor.assumeIsolated {
                 guard let self else { return }
-                var lines = ["[\(Date())] 启动"]
+                var lines = ["[\(Date())] launch"]
                 lines.append("statusItem.isVisible = \(self.statusItem.isVisible)")
-                lines.append("状态顶部 = \(self.statusTopLabel.stringValue)")
-                lines.append("状态底部字符数 = \(self.statusValueLabel.attributedStringValue.string.count)")
-                lines.append("状态图标 = \(self.statusItem.button?.image == nil ? "无" : "有")")
-                lines.append("顶部 frame = \(NSStringFromRect(self.statusTopLabel.frame))")
-                lines.append("底部 frame = \(NSStringFromRect(self.statusValueLabel.frame))")
+                lines.append("top line = \(self.statusTopLabel.stringValue)")
+                lines.append("bottom line length = \(self.statusValueLabel.attributedStringValue.string.count)")
+                lines.append("status image = \(self.statusItem.button?.image == nil ? "none" : "present")")
+                lines.append("top frame = \(NSStringFromRect(self.statusTopLabel.frame))")
+                lines.append("bottom frame = \(NSStringFromRect(self.statusValueLabel.frame))")
                 if let window = self.statusItem.button?.window {
-                    lines.append("按钮窗口 frame = \(NSStringFromRect(window.frame))")
+                    lines.append("button window frame = \(NSStringFromRect(window.frame))")
                     if let screen = window.screen {
-                        lines.append("所在屏幕 = \(NSStringFromRect(screen.frame))")
-                        lines.append("刘海左侧可用区 = \(screen.auxiliaryTopLeftArea.map(NSStringFromRect) ?? "无刘海")")
-                        lines.append("刘海右侧可用区 = \(screen.auxiliaryTopRightArea.map(NSStringFromRect) ?? "无刘海")")
-                        lines.append("能否点到 = \(AppDelegate.isReachable(window))")
+                        lines.append("screen = \(NSStringFromRect(screen.frame))")
+                        lines.append("aux top-left area = \(screen.auxiliaryTopLeftArea.map(NSStringFromRect) ?? "no notch")")
+                        lines.append("aux top-right area = \(screen.auxiliaryTopRightArea.map(NSStringFromRect) ?? "no notch")")
+                        lines.append("reachable = \(AppDelegate.isReachable(window))")
                     } else {
-                        lines.append("⚠︎ 按钮窗口没有关联屏幕 — 状态项很可能被挤掉了")
+                        lines.append("⚠︎ button window has no screen — the item was probably dropped")
                     }
                 } else {
-                    lines.append("⚠︎ 按钮没有窗口 — 状态项没有真正显示")
+                    lines.append("⚠︎ button has no window — the item is not actually shown")
                 }
                 let path = Config.directory.appendingPathComponent("last-launch.log")
                 try? FileManager.default.createDirectory(at: Config.directory,
@@ -383,7 +422,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
 
         statusTopLabel = StatusTextField(labelWithString: "AI")
         statusTopLabel.alignment = .left
-        statusTopLabel.font = NSFont.systemFont(ofSize: 8.5, weight: .medium)
+        statusTopLabel.font = MenuBarMetrics.topLabelFont
         statusTopLabel.textColor = .labelColor
         statusTopLabel.lineBreakMode = .byClipping
         statusTopLabel.translatesAutoresizingMaskIntoConstraints = false
@@ -424,38 +463,50 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         button.imagePosition = .noImage
         button.attributedTitle = NSAttributedString(string: "")
         statusTopLabel.stringValue = "AI"
-        statusValueLabel.attributedStringValue = valueReadout()
+        let readout = valueReadout()
+        statusValueLabel.attributedStringValue = readout
+        statusItem.length = MenuBarMetrics.width(for: readout)
         button.layoutSubtreeIfNeeded()
         var tooltip: [String] = []
         if !store.config.setupCompleted {
-            button.toolTip = "AI Quota：需要完成首次设置"
-            button.setAccessibilityLabel("AI Quota，需要完成首次设置")
+            button.toolTip = L("status.needs_setup_tooltip")
+            button.setAccessibilityLabel(L("status.needs_setup_accessible"))
             return
         }
         if let headline = store.headline {
-            var heading = "菜单栏显示：\(headline.label)"
+            var heading = L("status.menu_bar_shows", headline.label)
             if headline.isStandIn {
-                heading += "（\(store.config.menuBar.title)暂不可用，临时代替）"
+                heading += L("status.stand_in", store.config.menuBar.title)
+            }
+            if headline.isStale {
+                heading += L("status.stale_retrying",
+                             Fmt.since(headline.readAt) ?? L("status.stale_unknown_age"))
             }
             if let reset = Fmt.relative(headline.resetsAt) { heading += " · \(reset)" }
             tooltip.append(heading)
             tooltip.append("")
         }
         tooltip += store.snapshot.cards.map { card -> String in
-            if let error = card.error { return "\(card.name): \(error)" }
+            if let error = card.error, card.windows.isEmpty {
+                return "\(card.name): \(error)"
+            }
             let parts = card.windows.map { w -> String in
                 if let remaining = w.remainingPercent {
-                    return "\(w.label) 剩余 \(Int(remaining))%"
+                    return L("status.card_remaining", w.label, Int(remaining))
                 }
                 return "\(w.label) \(w.value ?? "")"
             }
-            return "\(card.name): " + parts.joined(separator: ", ")
+            let age = card.isStale
+                ? L("status.card_kept", Fmt.since(card.readAt) ?? L("status.card_kept_unknown")) : ""
+            return "\(card.name)\(age): " + parts.joined(separator: ", ")
         }
         button.toolTip = tooltip.joined(separator: "\n")
         if let headline = store.headline {
-            button.setAccessibilityLabel("AI Quota，\(headline.label)，\(headline.text)")
+            button.setAccessibilityLabel(
+                L("status.accessible", headline.label, headline.text)
+                + (headline.isStale ? L("status.accessible_stale") : ""))
         } else {
-            button.setAccessibilityLabel("AI Quota，暂无额度")
+            button.setAccessibilityLabel(L("status.no_quota_accessible"))
         }
     }
 
@@ -480,19 +531,26 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
 
         let line = NSMutableAttributedString()
         if let remaining = headline.remaining {
+            // A kept reading is dimmed rather than hidden: still there to
+            // glance at, no longer claiming to be current. A critical quota
+            // keeps its alarm colour either way.
+            let color = headline.isStale && remaining > 10
+                ? NSColor.secondaryLabelColor
+                : AppDelegate.tint(for: remaining)
             line.append(NSAttributedString(string: "\(Int(remaining))", attributes: [
                 .font: valueFont,
-                .foregroundColor: AppDelegate.tint(for: remaining),
+                .foregroundColor: color,
             ]))
             line.append(NSAttributedString(string: "%", attributes: [
                 .font: unitFont,
-                .foregroundColor: AppDelegate.tint(for: remaining),
+                .foregroundColor: color,
                 .baselineOffset: 1.5,
             ]))
         } else {
             line.append(NSAttributedString(string: Fmt.compact(headline.text), attributes: [
                 .font: valueFont,
-                .foregroundColor: NSColor.labelColor,
+                .foregroundColor: headline.isStale
+                    ? NSColor.secondaryLabelColor : NSColor.labelColor,
             ]))
         }
         return line

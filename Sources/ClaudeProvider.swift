@@ -21,7 +21,7 @@ struct ClaudeProvider: QuotaProvider {
                                 link: URL(string: "https://claude.ai/settings/usage"))
         do {
             let credentials = try oauth()
-            card.subtitle = credentials.plan.map { "\($0.uppercased()) 计划" }
+            card.subtitle = credentials.plan.map { L("plan.subtitle", $0.uppercased()) }
             let payload = try await usage(token: credentials.token)
             apply(payload, to: &card)
         } catch {
@@ -62,13 +62,13 @@ struct ClaudeProvider: QuotaProvider {
         let result = Keychain.read(service: ClaudeProvider.keychainService)
         guard result.status == errSecSuccess, let data = result.data else {
             var message = Keychain.explain(result.status, item: ClaudeProvider.keychainService)
-            if result.status == errSecItemNotFound { message += "，先跑一次 claude 登录" }
+            if result.status == errSecItemNotFound { message += L("claude.login_hint") }
             throw QuotaError.message(message)
         }
         guard let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               let oauth = root["claudeAiOauth"] as? [String: Any],
               let token = oauth["accessToken"] as? String, !token.isEmpty else {
-            throw QuotaError.message("Claude 凭证格式无法识别（可能是 CLI 换了存储格式）")
+            throw QuotaError.message(L("claude.credentials_unreadable"))
         }
 
         // expiresAt is milliseconds since epoch.
@@ -77,7 +77,7 @@ struct ClaudeProvider: QuotaProvider {
             let tokenExpiry = Date(timeIntervalSince1970: expiresAt / 1000)
             if tokenExpiry < Date() {
                 throw QuotaError.message(
-                    "Claude 登录令牌已过期（\(Fmt.stamp(tokenExpiry))）。在终端跑一次 claude 让它自己刷新。")
+                    L("claude.token_expired", Fmt.stamp(tokenExpiry)))
             }
             // Stop trusting the cache a minute early so a refresh never rides an
             // token that expires mid-request.
@@ -96,19 +96,21 @@ struct ClaudeProvider: QuotaProvider {
         req.setValue("2023-06-01", forHTTPHeaderField: "anthropic-version")
         req.setValue("application/json", forHTTPHeaderField: "Content-Type")
         req.timeoutInterval = 20
+        // A quota is the one thing that must never come from a cache.
+        req.cachePolicy = .reloadIgnoringLocalCacheData
 
         let (data, response) = try await URLSession.shared.data(for: req)
         guard let http = response as? HTTPURLResponse else {
-            throw QuotaError.message("Claude: 无响应")
+            throw QuotaError.message(L("claude.no_response"))
         }
         guard http.statusCode == 200 else {
             if http.statusCode == 401 {
-                throw QuotaError.message("Claude: 令牌被拒 (401)，在终端跑一次 claude 重新登录")
+                throw QuotaError.message(L("claude.unauthorized"))
             }
             throw QuotaError.message("Claude: HTTP \(http.statusCode)")
         }
         guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
-            throw QuotaError.message("Claude: 返回不是 JSON")
+            throw QuotaError.message(L("claude.not_json"))
         }
         return json
     }
@@ -120,18 +122,19 @@ struct ClaudeProvider: QuotaProvider {
 
     // MARK: - Shaping
 
+    /// `label` is a localization key, resolved when the card is built.
     private static let buckets: [(field: String, label: String, key: String?)] = [
-        ("five_hour", "5 小时", nil),
-        ("seven_day", "每周", ClaudeProvider.weeklyKey),
-        ("seven_day_opus", "每周 · Opus", nil),
-        ("seven_day_sonnet", "每周 · Sonnet", nil),
+        ("five_hour", "window.five_hour", nil),
+        ("seven_day", "window.weekly", ClaudeProvider.weeklyKey),
+        ("seven_day_opus", "window.weekly_opus", nil),
+        ("seven_day_sonnet", "window.weekly_sonnet", nil),
     ]
 
     private func apply(_ json: [String: Any], to card: inout ProviderCard) {
         for bucket in ClaudeProvider.buckets {
             guard let raw = json[bucket.field] as? [String: Any] else { continue }
             guard let used = utilizationPercent(raw) else { continue }
-            card.windows.append(QuotaWindow(label: bucket.label,
+            card.windows.append(QuotaWindow(label: L(bucket.label),
                                             key: bucket.key,
                                             usedPercent: used,
                                             resetsAt: resetDate(raw)))
@@ -139,7 +142,7 @@ struct ClaudeProvider: QuotaProvider {
 
         applySpend(json, to: &card)
         if card.windows.isEmpty {
-            card.error = "Claude 没返回任何额度窗口（字段: \(json.keys.sorted().joined(separator: ", ")))"
+            card.error = L("claude.no_windows", json.keys.sorted().joined(separator: ", "))
         }
     }
 
@@ -160,15 +163,17 @@ struct ClaudeProvider: QuotaProvider {
         guard let spend = json["spend"] as? [String: Any] else { return }
         guard let used = money(spend["used"]), let limit = money(spend["limit"]) else { return }
 
-        var note = "额外用量额度：\(used) / \(limit)"
+        var note = L("claude.extra_usage", used, limit)
         if let percent = (spend["percent"] as? NSNumber)?.intValue {
-            note += "（已用 \(percent)%）"
+            note += L("claude.extra_usage_percent", percent)
         }
+        var needsAttention = false
         if spend["enabled"] as? Bool != true {
             let reason = spend["disabled_reason"] as? String
-            note += reason == "out_of_credits" ? " · 未启用（额度已用尽）" : " · 未启用"
+            note += L(reason == "out_of_credits" ? "claude.extra_usage_out" : "claude.extra_usage_off")
+            needsAttention = true
         }
-        card.notes.append(note)
+        card.notes.append(ProviderNote(text: note, needsAttention: needsAttention))
     }
 
     /// `{amount_minor: 8555, currency: "EUR", exponent: 2}` -> "€85.55".
