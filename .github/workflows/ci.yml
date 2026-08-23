@@ -24,10 +24,13 @@ jobs:
       # catches cannot ride in unnoticed.
       - name: Typecheck (strict concurrency)
         run: |
+          # pipefail matters: without it `tee` swallows swiftc's exit code and a
+          # compile error walks straight past this step.
+          set -o pipefail
           swiftc -typecheck -target arm64-apple-macosx14.0 \
             -strict-concurrency=complete Sources/*.swift 2>&1 | tee typecheck.log
-          if grep -q 'warning:' typecheck.log; then
-            echo "::error::strict concurrency warnings"
+          if grep -qE 'warning:|error:' typecheck.log; then
+            echo "::error::strict concurrency warnings or errors"
             exit 1
           fi
 
