@@ -1,5 +1,17 @@
 # Changelog
 
+## 1.3.0 Beta 1 — First-run Ready
+
+- 首次启动先显示配置向导，不再立即触发多次钥匙串提示。
+- Codex 与 Claude 保持登录后零配置。
+- OpenCode 支持粘贴完整工作区 URL 并自动提取 `wrk_…`。
+- DeepSeek API Key 通过 SecureField 写入 App 专用钥匙串条目。
+- 移除菜单栏 App 无法可靠继承的 shell 环境变量兜底。
+- 新用户默认只启用 Codex、Claude；OpenCode、DeepSeek 按需开启。
+- 配置文件强制使用 `0600` 权限。
+- 新增 MIT License、ZIP/DMG/SHA-256 Release 工具链。
+- 清理图标源文件中的可选 C2PA/JUMBF 元数据，保持像素不变。
+
 ## 1.2.0 — Calm Dashboard
 
 - 统一动态品牌蓝，橙红仅用于低额度告警。

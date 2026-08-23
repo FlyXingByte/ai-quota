@@ -14,7 +14,8 @@ struct DeepSeekProvider: QuotaProvider {
     let keychainService: String
     let keychainAccount: String
 
-    init(keychainService: String = "DeepSeek API Key", keychainAccount: String = "codex") {
+    init(keychainService: String = "AI Quota DeepSeek API Key",
+         keychainAccount: String = "default") {
         self.keychainService = keychainService
         self.keychainAccount = keychainAccount
     }
@@ -35,14 +36,12 @@ struct DeepSeekProvider: QuotaProvider {
     // MARK: - Credentials
 
     private func apiKey() throws -> String {
-        if let env = ProcessInfo.processInfo.environment["DEEPSEEK_API_KEY"], !env.isEmpty {
-            return env
-        }
         if let key = Keychain.string(service: keychainService, account: keychainAccount),
            !key.isEmpty {
             return key
         }
-        throw QuotaError.message("钥匙串里没有 \"\(keychainService)\"（账户 \(keychainAccount)）。也可以设置环境变量 DEEPSEEK_API_KEY。")
+        throw QuotaError.message(
+            "钥匙串里没有 DeepSeek API Key。请打开「⋯ → 数据源设置」安全保存。")
     }
 
     // MARK: - API

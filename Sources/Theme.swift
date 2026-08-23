@@ -27,7 +27,7 @@ enum QuotaTheme {
     }
 }
 
-enum FeedbackTone {
+enum FeedbackTone: Equatable {
     case neutral
     case success
     case warning

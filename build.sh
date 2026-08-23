@@ -32,8 +32,8 @@ cat > "$APP/Contents/Info.plist" <<'PLIST'
   <key>CFBundleInfoDictionaryVersion</key> <string>6.0</string>
   <key>CFBundleExecutable</key>      <string>AIQuota</string>
   <key>CFBundlePackageType</key>     <string>APPL</string>
-  <key>CFBundleShortVersionString</key> <string>1.2.0</string>
-  <key>CFBundleVersion</key>         <string>3</string>
+  <key>CFBundleShortVersionString</key> <string>1.3.0</string>
+  <key>CFBundleVersion</key>         <string>4</string>
   <key>CFBundleIconFile</key>        <string>AppIcon.icns</string>
   <key>LSApplicationCategoryType</key> <string>public.app-category.productivity</string>
   <key>LSMinimumSystemVersion</key>  <string>14.0</string>
@@ -66,4 +66,4 @@ fi
 codesign --verify --deep --strict "$APP"
 
 echo "==> 完成: $APP"
-"$APP/Contents/MacOS/$BIN_NAME" --help >/dev/null && echo "==> 二进制可运行"
+"$APP/Contents/MacOS/$BIN_NAME" --self-test >/dev/null && echo "==> 离线自检通过"

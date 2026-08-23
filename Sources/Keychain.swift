@@ -1,4 +1,5 @@
 import Foundation
+import Security
 
 /// Serialized keychain reads.
 ///
@@ -33,6 +34,32 @@ enum Keychain {
         guard result.status == errSecSuccess, let data = result.data else { return nil }
         return String(data: data, encoding: .utf8)?
             .trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    /// Stores a secret directly in Keychain. The value never enters Config,
+    /// shell history, process arguments, or application logs.
+    static func store(_ value: String, service: String, account: String) throws {
+        guard let data = value.data(using: .utf8), !data.isEmpty else { return }
+        let query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: service,
+            kSecAttrAccount as String: account,
+        ]
+
+        gate.lock()
+        defer { gate.unlock() }
+
+        var status = SecItemUpdate(query as CFDictionary,
+                                   [kSecValueData as String: data] as CFDictionary)
+        if status == errSecItemNotFound {
+            var item = query
+            item[kSecValueData as String] = data
+            item[kSecAttrAccessible as String] = kSecAttrAccessibleWhenUnlocked
+            status = SecItemAdd(item as CFDictionary, nil)
+        }
+        guard status == errSecSuccess else {
+            throw QuotaError.message("无法写入钥匙串「\(service)」（状态 \(status)）")
+        }
     }
 
     /// Human-readable reason for the statuses this app actually runs into.

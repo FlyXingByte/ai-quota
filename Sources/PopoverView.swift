@@ -8,9 +8,12 @@ struct PopoverView: View {
 
     @State private var launchAtLogin = SMAppService.mainApp.status == .enabled
     @State private var feedback: FeedbackMessage?
+    @State private var showSettings = false
 
     private var needsWorkspaceID: Bool {
-        store.config.showOpenCode && store.config.opencodeWorkspaceID.isEmpty
+        store.config.setupCompleted
+            && store.config.showOpenCode
+            && store.config.opencodeWorkspaceID.isEmpty
     }
 
     var body: some View {
@@ -27,6 +30,13 @@ struct PopoverView: View {
         }
         .frame(width: 372)
         .tint(QuotaTheme.brand)
+        .sheet(isPresented: $showSettings) {
+            SetupView(store: store) {
+                showSettings = false
+                feedback = FeedbackMessage(text: "数据源设置已更新", tone: .success)
+            }
+            .frame(width: 420)
+        }
     }
 
     private var header: some View {
@@ -47,7 +57,12 @@ struct PopoverView: View {
                     .foregroundStyle(.secondary)
             }
             Spacer()
-            if store.snapshot.refreshing {
+            if !store.config.setupCompleted {
+                Image(systemName: "slider.horizontal.3")
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
+                    .frame(width: 24, height: 24)
+            } else if store.snapshot.refreshing {
                 ProgressView()
                     .controlSize(.small)
                     .scaleEffect(0.75)
@@ -72,7 +87,11 @@ struct PopoverView: View {
 
     @ViewBuilder
     private var content: some View {
-        if store.snapshot.cards.isEmpty {
+        if !store.config.setupCompleted {
+            SetupView(store: store) {
+                feedback = FeedbackMessage(text: "首次设置完成", tone: .success)
+            }
+        } else if store.snapshot.cards.isEmpty {
             HStack {
                 Spacer()
                 VStack(spacing: 6) {
@@ -107,7 +126,11 @@ struct PopoverView: View {
             VStack(alignment: .leading, spacing: 3) {
                 Text("OpenCode 还没配工作区 ID")
                     .font(.system(size: 11))
-                Button("打开配置文件…") { openConfigFile() }
+                Text("从 opencode.ai/workspace/<这一段>/go 获取，或直接粘贴完整 URL。")
+                    .font(.system(size: 10))
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                Button("打开数据源设置…") { showSettings = true }
                     .buttonStyle(.borderless)
                     .font(.system(size: 10))
             }
@@ -122,24 +145,32 @@ struct PopoverView: View {
 
     private var footer: some View {
         HStack(spacing: 10) {
-            Text(feedback?.text ?? "更新于 \(Fmt.stamp(store.snapshot.updatedAt))")
+            Text(feedback?.text
+                 ?? (store.config.setupCompleted
+                     ? "更新于 \(Fmt.stamp(store.snapshot.updatedAt))" : "等待首次设置"))
                 .font(.system(size: 10))
                 .foregroundStyle(feedback?.tone.color ?? .secondary)
                 .lineLimit(1)
             Spacer()
             Menu {
-                Button("立即刷新") { Task { await store.refresh() } }
-                Divider()
-                // A Picker inside a Menu renders as a submenu with a checkmark
-                // on the active row — the native way to offer this choice.
-                Picker("菜单栏显示", selection: menuBarSource) {
-                    ForEach(MenuBarSource.allCases, id: \.self) { source in
-                        Text(source.title).tag(source)
+                if store.config.setupCompleted {
+                    Button("立即刷新") { Task { await store.refresh() } }
+                    Divider()
+                    // A Picker inside a Menu renders as a submenu with a checkmark
+                    // on the active row — the native way to offer this choice.
+                    Picker("菜单栏显示", selection: menuBarSource) {
+                        ForEach(MenuBarSource.allCases, id: \.self) { source in
+                            Text(source.title).tag(source)
+                        }
                     }
+                    Divider()
+                    Button("数据源设置…") { showSettings = true }
+                    Toggle("开机自动启动", isOn: $launchAtLogin)
+                    Button("打开高级配置…") { openConfigFile() }
+                } else {
+                    Button("完成首次设置") { }
+                        .disabled(true)
                 }
-                Divider()
-                Toggle("开机自动启动", isOn: $launchAtLogin)
-                Button("打开配置文件…") { openConfigFile() }
                 Divider()
                 Button("退出 AI Quota", action: onQuit)
             } label: {

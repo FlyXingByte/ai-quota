@@ -9,12 +9,15 @@ final class QuotaStore: ObservableObject {
     @Published private(set) var config: Config
 
     private var timer: Timer?
+    private var started = false
 
     init(config: Config = .load()) {
         self.config = config
     }
 
     func start() {
+        guard config.setupCompleted, !started else { return }
+        started = true
         Task { await refresh() }
         scheduleTimer()
     }
@@ -96,6 +99,43 @@ final class QuotaStore: ObservableObject {
         updated.menuBarSource = source.rawValue
         try updated.save()
         config = updated
+    }
+
+    /// Applies first-run or later source settings. DeepSeek credentials are
+    /// written directly to Keychain and are never represented in Config.
+    func applySetup(showCodex: Bool,
+                    showClaude: Bool,
+                    showOpenCode: Bool,
+                    workspaceID: String,
+                    showDeepSeek: Bool,
+                    deepSeekKey: String) throws {
+        if showOpenCode && workspaceID.isEmpty {
+            throw QuotaError.message("请粘贴 OpenCode 工作区 URL 或填写 wrk_ 开头的 ID")
+        }
+
+        var updated = config
+        updated.showCodex = showCodex
+        updated.showClaude = showClaude
+        updated.showOpenCode = showOpenCode
+        updated.opencodeWorkspaceID = workspaceID
+        updated.showDeepSeek = showDeepSeek
+        updated.setupCompleted = true
+
+        let trimmedKey = deepSeekKey.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !trimmedKey.isEmpty {
+            try Keychain.store(trimmedKey,
+                               service: updated.deepseekKeychainService,
+                               account: updated.deepseekKeychainAccount)
+        }
+
+        try updated.save()
+        config = updated
+        if started {
+            scheduleTimer()
+            Task { await refresh() }
+        } else {
+            start()
+        }
     }
 
     var hasError: Bool { snapshot.cards.contains { $0.error != nil } }

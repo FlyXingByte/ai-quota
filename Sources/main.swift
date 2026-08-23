@@ -12,13 +12,96 @@ if args.contains("--help") || args.contains("-h") {
     \(AppInfo.name) \(AppInfo.version)
 
       --probe            读取全部配额并打印为文本，然后退出
-      --dump <来源>      抓取原始响应（opencode | billing | codex | claude | deepseek）
+      --dump <来源>      抓取原始响应（opencode | billing | codex | claude）
       --snapshot         把面板离屏渲染成 ~/Desktop/ai-quota-preview.png
+      --snapshot-setup   把无凭据的首次设置界面渲染到 /private/tmp
       --config           打印配置文件路径和当前内容
       --identity         打印 App 身份、图标和登录项状态
+      --self-test        运行离线发布自检
     不带参数时以菜单栏 App 运行。
     """)
     exit(0)
+}
+
+if args.contains("--snapshot-setup") {
+    let out = URL(fileURLWithPath: "/private/tmp/ai-quota-setup-preview.png")
+    _ = NSApplication.shared
+    final class SetupRenderFlag: @unchecked Sendable { var done = false }
+    let flag = SetupRenderFlag()
+    Task { @MainActor in
+        let store = QuotaStore(config: Config())
+        let view = SetupView(store: store)
+            .frame(width: 372)
+            .background(Color(nsColor: .windowBackgroundColor))
+        let hosting = NSHostingView(rootView: view)
+        hosting.frame = NSRect(origin: .zero, size: hosting.fittingSize)
+        let window = NSWindow(contentRect: hosting.frame,
+                              styleMask: [.borderless], backing: .buffered, defer: false)
+        window.contentView = hosting
+        window.setFrameOrigin(NSPoint(x: -10000, y: -10000))
+        window.orderFront(nil)
+        hosting.layoutSubtreeIfNeeded()
+        try? await Task.sleep(nanoseconds: 300_000_000)
+        if let rep = hosting.bitmapImageRepForCachingDisplay(in: hosting.bounds) {
+            hosting.cacheDisplay(in: hosting.bounds, to: rep)
+            if let png = rep.representation(using: .png, properties: [:]) {
+                try? png.write(to: out)
+                print("已渲染首次设置界面 -> \(out.path)")
+            }
+        }
+        window.orderOut(nil)
+        flag.done = true
+    }
+    while !flag.done {
+        RunLoop.main.run(mode: .default, before: Date().addingTimeInterval(0.05))
+    }
+    exit(0)
+}
+
+if args.contains("--self-test") {
+    var failures: [String] = []
+    func expect(_ condition: @autoclosure () -> Bool, _ message: String) {
+        if !condition() { failures.append(message) }
+    }
+
+    let sampleWorkspace = "wrk" + "_example"
+    expect(SetupView.workspaceID(from: sampleWorkspace) == sampleWorkspace,
+           "workspace ID passthrough")
+    expect(SetupView.workspaceID(
+        from: "https://opencode.ai/workspace/\(sampleWorkspace)/go") == sampleWorkspace,
+        "workspace URL extraction")
+
+    let legacyObject: [String: Any] = [
+        "opencodeWorkspaceID": sampleWorkspace,
+        "deepseekKeychainService": "DeepSeek API Key",
+        "deepseekKeychainAccount": "codex",
+        "showCodex": true,
+        "showClaude": true,
+        "showOpenCode": true,
+        "showDeepSeek": true,
+        "refreshMinutes": 10,
+        "menuBarSource": "codex-weekly",
+    ]
+    if let data = try? JSONSerialization.data(withJSONObject: legacyObject),
+       let migrated = try? JSONDecoder().decode(Config.self, from: data) {
+        expect(migrated.opencodeWorkspaceID == sampleWorkspace, "legacy workspace migration")
+        expect(migrated.deepseekKeychainAccount == "codex", "legacy keychain migration")
+        expect(!migrated.setupCompleted, "legacy config enters onboarding")
+    } else {
+        failures.append("legacy config decoding")
+    }
+
+    let fresh = Config()
+    expect(!fresh.showOpenCode && !fresh.showDeepSeek, "optional sources disabled by default")
+    expect(fresh.deepseekKeychainAccount == "default", "generic DeepSeek account")
+    expect(AppInfo.version == "1.3.0", "version")
+
+    if failures.isEmpty {
+        print("Self-test passed.")
+        exit(0)
+    }
+    print("Self-test failed: " + failures.joined(separator: ", "))
+    exit(1)
 }
 
 if args.contains("--identity") {
@@ -135,15 +218,6 @@ if let dumpIndex = args.firstIndex(of: "--dump") {
         case "codex":
             let card = await CodexProvider().fetch()
             print(card.error ?? "ok: \(card.windows.count) 个窗口, notes=\(card.notes)")
-        case "deepseek":
-            // Repeats the balance query so it is possible to tell whether the
-            // query itself costs anything.
-            let provider = DeepSeekProvider()
-            for i in 1...5 {
-                let card = await provider.fetch()
-                let value = card.windows.first?.value ?? card.error ?? "—"
-                print("第 \(i) 次: \(value)")
-            }
         case "claude":
             do {
                 let json = try await ClaudeProvider().rawUsage()
@@ -244,7 +318,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
                 MainActor.assumeIsolated { self?.updateStatusTitle() }
             }
 
-        store.start()
+        if store.config.setupCompleted {
+            store.start()
+        } else {
+            // Show onboarding before any provider can trigger a keychain prompt.
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) { [weak self] in
+                MainActor.assumeIsolated { self?.showPanel() }
+            }
+        }
         updateStatusTitle()
         logStatusItemPlacement()
     }
@@ -293,6 +374,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         button.imagePosition = .imageLeading
         button.attributedTitle = readout()
         var tooltip: [String] = []
+        if !store.config.setupCompleted {
+            button.toolTip = "AI Quota：需要完成首次设置"
+            return
+        }
         if store.config.menuBar != .all, let headline = store.headline {
             var heading = "菜单栏显示：\(headline.label)"
             if headline.isStandIn {
@@ -320,7 +405,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
     /// out right-to-left from whatever sits beside it, so a longer readout
     /// reaches further left — out from under the notch on a crowded bar.
     private func readout() -> NSAttributedString {
-        store.config.menuBar == .all ? everySourceReadout() : singleSourceReadout()
+        if !store.config.setupCompleted {
+            return NSAttributedString(string: " 设置", attributes: [
+                .font: NSFont.systemFont(ofSize: 11, weight: .medium),
+                .foregroundColor: NSColor.secondaryLabelColor,
+            ])
+        }
+        return store.config.menuBar == .all ? everySourceReadout() : singleSourceReadout()
     }
 
     /// One number, pinned by config — Codex's weekly quota unless changed. Also
@@ -401,6 +492,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
     private func gaugeImage() -> NSImage? {
         let name: String
         var tint = NSColor.labelColor
+        if !store.config.setupCompleted {
+            let config = NSImage.SymbolConfiguration(pointSize: 13, weight: .regular)
+                .applying(.init(paletteColors: [NSColor.systemBlue]))
+            return NSImage(systemSymbolName: "slider.horizontal.3",
+                           accessibilityDescription: "AI Quota 设置")?
+                .withSymbolConfiguration(config)
+        }
         // A balance has no ceiling, so there is no needle position to imply —
         // show a neutral full gauge rather than a made-up level.
         if let headline = store.headline, let remaining = headline.remaining {

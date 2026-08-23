@@ -9,45 +9,93 @@
 </p>
 
 <p align="center">
+  <img alt="Private beta" src="https://img.shields.io/badge/release-1.3.0_beta_1-1769E8?style=flat-square">
   <img alt="macOS 14+" src="https://img.shields.io/badge/macOS-14%2B-111111?style=flat-square&logo=apple&logoColor=white">
-  <img alt="Apple Silicon" src="https://img.shields.io/badge/Apple_Silicon-arm64-1769E8?style=flat-square">
-  <img alt="Swift" src="https://img.shields.io/badge/Swift-native-F05138?style=flat-square&logo=swift&logoColor=white">
-  <img alt="Local first" src="https://img.shields.io/badge/data-local--first-4A8BFF?style=flat-square">
+  <img alt="Apple Silicon" src="https://img.shields.io/badge/Apple_Silicon-arm64-4A8BFF?style=flat-square">
+  <img alt="MIT" src="https://img.shields.io/badge/license-MIT-3DA639?style=flat-square">
 </p>
 
 <p align="center">
-  <a href="https://github.com/FlyXingByte/ai-quota/releases/latest"><strong>下载最新版本</strong></a>
+  <a href="https://github.com/FlyXingByte/ai-quota/releases/tag/v1.3.0-beta.1"><strong>下载内测版</strong></a>
   &nbsp;·&nbsp;
-  <a href="#从源码安装">从源码安装</a>
+  <a href="#第一次使用">第一次使用</a>
   &nbsp;·&nbsp;
   <a href="#隐私边界">隐私边界</a>
 </p>
 
-> **1.2.0 · Calm Dashboard**<br>
-> 统一品牌蓝、轻量卡片、动态深浅色，以及更安静的菜单栏状态表达。
+> **1.3.0 Beta 1 · First-run Ready**<br>
+> 先解释权限、再读取凭据；首次配置不再要求手改 JSON。
 
 <table>
   <tr>
     <td width="50%" valign="top">
-      <h3>01 · 一眼读完</h3>
+      <h3>一眼读完</h3>
       <p>菜单栏直接显示最关心的周额度、余额，或四个平台并排状态。</p>
     </td>
     <td width="50%" valign="top">
-      <h3>02 · Calm Dashboard</h3>
-      <p>正常状态统一蓝色；橙色与红色只在真的需要注意时出现。</p>
+      <h3>第一次就会用</h3>
+      <p>首次启动自动打开向导，解释权限并完成 OpenCode、DeepSeek 配置。</p>
     </td>
   </tr>
   <tr>
     <td width="50%" valign="top">
-      <h3>03 · Local-first</h3>
-      <p>配置与日志留在本机；凭据从 macOS 钥匙串读取，不进入仓库。</p>
+      <h3>Local-first</h3>
+      <p>DeepSeek Key 直接写入 macOS 钥匙串；配置、日志和凭据不进入仓库。</p>
     </td>
     <td width="50%" valign="top">
-      <h3>04 · Native Swift</h3>
-      <p>SwiftUI + AppKit 原生实现，无第三方运行时依赖，自动跟随系统主题。</p>
+      <h3>Calm Dashboard</h3>
+      <p>正常状态统一蓝色；橙红只在低额度时出现，并自动适配系统主题。</p>
     </td>
   </tr>
 </table>
+
+<p align="center">
+  <img src="docs/setup-preview.png" width="560" alt="AI Quota first-run setup">
+</p>
+
+<p align="center"><sub>首次运行先解释权限，再由用户选择数据源。</sub></p>
+
+## 安装内测版
+
+1. 在 [v1.3.0-beta.1 Release](https://github.com/FlyXingByte/ai-quota/releases/tag/v1.3.0-beta.1) 下载：
+   - `AI-Quota-1.3.0-beta.1-macOS-arm64.dmg`（推荐）
+   - 或 `AI-Quota-1.3.0-beta.1-macOS-arm64.zip`
+2. 打开 DMG，把 `AI Quota.app` 拖到 `Applications`。
+3. 从“应用程序”打开 AI Quota，按首次配置向导完成设置。
+
+> 这是 Apple Silicon 内测构建，要求 macOS 14+。当前使用严格可验证的 ad-hoc 签名，但尚未经过 Apple 公证。
+
+## 第一次使用
+
+AI Quota **不会在启动瞬间读取钥匙串**。它会先打开配置向导，说明每个来源需要什么；只有点击
+“保存并开始读取”后，才会访问已启用来源。
+
+| 来源 | 开箱条件 | 首次设置 |
+|---|---|---|
+| **Codex** | 已安装并登录 `codex` CLI | 零配置，保持启用即可 |
+| **Claude** | 已安装并登录 Claude Code | 零配置；开始读取时授权 `Claude Code-credentials` |
+| **OpenCode** | Chrome 已登录 `opencode.ai` | 直接粘贴完整工作区 URL，App 自动提取 `wrk_…` |
+| **DeepSeek** | 一个可用的 API Key | 在向导的 SecureField 中输入，直接保存到钥匙串 |
+
+### 可能出现的钥匙串提示
+
+根据启用来源，首次读取最多会出现：
+
+- `Chrome Safe Storage`：仅 OpenCode 需要；
+- `Claude Code-credentials`：仅 Claude 需要；
+- `AI Quota DeepSeek API Key`：仅 DeepSeek 需要。
+
+请核对名称后再允许。关闭某个来源，就不会读取它需要的凭据。
+
+### OpenCode 工作区 ID 在哪里
+
+打开 OpenCode 工作区页面，地址类似：
+
+```text
+https://opencode.ai/workspace/wrk_xxxxx/go
+```
+
+配置向导支持直接粘贴整条 URL，无需手动截取。
 
 ## 四个平台，一张面板
 
@@ -56,7 +104,7 @@
 | **Codex** | 5 小时、每周与模型分桶 | 本地 `codex app-server`，不读取 Token |
 | **Claude** | 5 小时、每周与额外用量 | 只读 Claude Code 钥匙串凭据，不刷新令牌 |
 | **OpenCode** | 滚动窗口、周/月额度、Zen 余额 | 复用 Chrome 的 `opencode.ai` 登录会话 |
-| **DeepSeek** | CNY / USD 余额 | 官方 `/user/balance` API + 钥匙串 Key |
+| **DeepSeek** | CNY / USD 余额 | 官方 `/user/balance` API + App 专用钥匙串条目 |
 
 所有百分比统一表示 **剩余量**：条越长，当前余量越充足。
 
@@ -73,49 +121,17 @@
 | 剩余最少 | 自动切换来源 | 只想知道当前最紧张的额度 |
 | 全部并排 | `Cx 56% Cl 87% OC 48% DS ¥45` | 菜单栏空间充足 |
 
-## 安装
+## 后续修改设置
 
-### 下载 Release
+使用 **「⋯ → 数据源设置…」** 即可重新选择来源、更新 OpenCode URL 或覆盖 DeepSeek Key。
 
-1. 在 [Releases](https://github.com/FlyXingByte/ai-quota/releases/latest) 下载 `AI-Quota-1.2.0-macOS-arm64.zip`。
-2. 解压，将 `AI Quota.app` 放入 `/Applications`。
-3. 首次打开后，根据 macOS 提示授予必要的钥匙串访问权限。
-
-> 当前 Release 是私人本地构建，使用可验证的 ad-hoc 签名，但未经过 Apple 公证。
-
-### 从源码安装
-
-```bash
-gh repo clone FlyXingByte/ai-quota
-cd ai-quota
-./install.sh
-```
-
-要求：Apple Silicon Mac、macOS 14 或更高版本，以及 Command Line Tools。
-
-## 配置
-
-配置文件位于：
+高级配置文件仍位于：
 
 ```text
 ~/Library/Application Support/AIQuota/config.json
 ```
 
-面板右下角的 **「⋯ → 打开配置文件…」** 可以直接打开。保存后无需重启，下次刷新自动生效。
-
-```json
-{
-  "opencodeWorkspaceID": "wrk_…",
-  "menuBarSource": "codex-weekly",
-  "refreshMinutes": 10,
-  "deepseekKeychainService": "DeepSeek API Key",
-  "deepseekKeychainAccount": "codex",
-  "showCodex": true,
-  "showClaude": true,
-  "showOpenCode": true,
-  "showDeepSeek": true
-}
-```
+文件权限会被保存为 `0600`。DeepSeek Key 从不写入该文件。
 
 ## 隐私边界
 
@@ -123,55 +139,63 @@ cd ai-quota
   <tr>
     <td width="50%" valign="top">
       <h3>留在本机</h3>
-      <p>配置、刷新日志、Chrome Cookie 数据库副本和临时诊断文件。</p>
+      <p>配置、刷新日志、临时 Cookie 数据库副本和钥匙串凭据。</p>
     </td>
     <td width="50%" valign="top">
       <h3>不会进入 Git</h3>
-      <p>API Key、OAuth Token、Cookie、Workspace 配置和本机签名材料。</p>
+      <p>API Key、OAuth Token、Cookie、Workspace 配置、真实邮箱和签名私钥。</p>
     </td>
   </tr>
 </table>
 
 - Codex 只调用本地 CLI 的只读额度接口。
-- Claude 的 OAuth Token 只用于查询额度，不刷新、不写回。
+- Claude Token 只用于额度查询，不刷新、不写回。
 - OpenCode 正常请求使用临时 URLSession，并禁止自动重定向。
-- DeepSeek Key 从钥匙串读取，只发送到官方余额接口。
-- `config.json`、`.env`、证书和私钥文件都已被 `.gitignore` 排除。
+- DeepSeek Key 使用 App 专用钥匙串条目，不依赖 shell 环境变量。
+- `config.json`、`.env`、证书和私钥文件均被 `.gitignore` 排除。
+- 图标源文件已清理 C2PA/JUMBF 等可选生成元数据，像素内容保持一致。
 
-## 常用命令
+## 从源码安装
 
 ```bash
-# 文本自检
-"/Applications/AI Quota.app/Contents/MacOS/AIQuota" --probe
-
-# 查看 App 身份、图标和登录项状态
-"/Applications/AI Quota.app/Contents/MacOS/AIQuota" --identity
-
-# 打印配置路径与当前设置
-"/Applications/AI Quota.app/Contents/MacOS/AIQuota" --config
+gh repo clone FlyXingByte/ai-quota
+cd ai-quota
+./install.sh
 ```
 
+构建需要 Apple Silicon Mac、macOS 14+ 和 Command Line Tools。若钥匙串中没有 macOS 认可的有效签名身份，
+构建会安全回退到严格可验证的 ad-hoc，而不会使用未受信任的自签名证书。
+
+## 生成 Release 资产
+
+```bash
+./scripts/create-release.sh 1.3.0-beta.1
+./scripts/verify-release.sh 1.3.0-beta.1
+```
+
+输出包括 ZIP、DMG 和 SHA-256 文件。
+
 <details>
-<summary><strong>实现细节：Chrome Cookie</strong></summary>
+<summary><strong>常用诊断命令</strong></summary>
 
-OpenCode 没有公开额度 API，因此 AI Quota 会：
-
-1. 复制 Chrome `Cookies` SQLite 数据库及 WAL/SHM；
-2. 从 macOS 钥匙串读取 `Chrome Safe Storage`；
-3. 仅查询匹配 `opencode.ai` 的 Cookie；
-4. 用临时 Session 请求 OpenCode 页面并解析 SSR hydration 数据；
-5. 刷新结束后删除数据库副本。
-
-实现位于 [`Sources/ChromeCookies.swift`](Sources/ChromeCookies.swift) 与
-[`Sources/OpenCodeProvider.swift`](Sources/OpenCodeProvider.swift)。
+```bash
+"/Applications/AI Quota.app/Contents/MacOS/AIQuota" --probe
+"/Applications/AI Quota.app/Contents/MacOS/AIQuota" --identity
+"/Applications/AI Quota.app/Contents/MacOS/AIQuota" --config
+"/Applications/AI Quota.app/Contents/MacOS/AIQuota" --self-test
+"/Applications/AI Quota.app/Contents/MacOS/AIQuota" --snapshot-setup
+```
 
 </details>
 
 <details>
-<summary><strong>实现细节：增加 Provider</strong></summary>
+<summary><strong>实现细节：Chrome Cookie</strong></summary>
 
-实现 `QuotaProvider`，并在 `Config.providers` 中加入实例即可。每个 `ProviderCard` 可以包含多个
-`QuotaWindow`。要让某个窗口可被固定到菜单栏，为它提供稳定 `key`，再在 `MenuBarSource` 增加对应项。
+OpenCode 没有公开额度 API，因此 AI Quota 会复制 Chrome Cookie SQLite 数据库，仅查询匹配
+`opencode.ai` 的条目，在临时 Session 中请求页面并解析 SSR hydration 数据。数据库副本在读取结束后删除。
+
+实现位于 [`Sources/ChromeCookies.swift`](Sources/ChromeCookies.swift) 与
+[`Sources/OpenCodeProvider.swift`](Sources/OpenCodeProvider.swift)。
 
 </details>
 
@@ -179,12 +203,15 @@ OpenCode 没有公开额度 API，因此 AI Quota 会：
 
 - 仅支持 Chrome，不支持 Canary、Edge 或 Brave。
 - OpenCode 页面结构变化后可能需要更新解析器。
-- Claude 使用 Claude Code 当前的本机登录状态；令牌过期时需由 Claude Code 自己刷新。
+- Claude 使用 Claude Code 当前登录状态；令牌过期时由 Claude Code 自己刷新。
 - DeepSeek 仅提供余额，不提供网页控制台中的详细 Token 曲线。
-- App 是本地私人工具，目前没有 Apple 公证或公开分发承诺。
+- 内测构建未经过 Apple 公证；公开大规模分发前应使用 Developer ID 并完成 notarization。
+- Fork 若要以自己的产品名发布，应修改 `com.flyx.aiquota` Bundle ID。
+
+## License
+
+[MIT](LICENSE) © 2026 FlyXingByte
 
 ---
 
-<p align="center">
-  Built for a quieter menu bar.
-</p>
+<p align="center">Built for a quieter menu bar.</p>

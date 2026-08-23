@@ -2,7 +2,7 @@ import Foundation
 
 enum AppInfo {
     static let name = "AI Quota"
-    static let version = "1.2.0"
+    static let version = "1.3.0"
     static let bundleID = "com.flyx.aiquota"
 }
 
@@ -43,12 +43,15 @@ enum MenuBarSource: String, CaseIterable, Hashable {
 struct Config: Codable {
     var opencodeWorkspaceID: String = ""
     var refreshMinutes: Int = 10
-    var deepseekKeychainService: String = "DeepSeek API Key"
-    var deepseekKeychainAccount: String = "codex"
+    var deepseekKeychainService: String = "AI Quota DeepSeek API Key"
+    var deepseekKeychainAccount: String = "default"
     var showCodex: Bool = true
     var showClaude: Bool = true
-    var showOpenCode: Bool = true
-    var showDeepSeek: Bool = true
+    var showOpenCode: Bool = false
+    var showDeepSeek: Bool = false
+    /// Stops automatic credential reads until the first-run screen has
+    /// explained which enabled sources can trigger a keychain prompt.
+    var setupCompleted: Bool = false
 
     /// What the menu bar reads out. The panel always shows everything.
     ///   "codex-weekly" — Codex's account-wide weekly quota (default)
@@ -73,10 +76,13 @@ struct Config: Codable {
 
     func save() throws {
         try FileManager.default.createDirectory(at: Config.directory,
-                                                withIntermediateDirectories: true)
+                                                withIntermediateDirectories: true,
+                                                attributes: [.posixPermissions: 0o700])
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
         try encoder.encode(self).write(to: Config.fileURL, options: .atomic)
+        try FileManager.default.setAttributes([.posixPermissions: 0o600],
+                                              ofItemAtPath: Config.fileURL.path)
     }
 
     var providers: [QuotaProvider] {
@@ -118,6 +124,7 @@ extension Config {
         showClaude = value(.showClaude, fallback.showClaude)
         showOpenCode = value(.showOpenCode, fallback.showOpenCode)
         showDeepSeek = value(.showDeepSeek, fallback.showDeepSeek)
+        setupCompleted = value(.setupCompleted, fallback.setupCompleted)
         menuBarSource = value(.menuBarSource, fallback.menuBarSource)
     }
 }
