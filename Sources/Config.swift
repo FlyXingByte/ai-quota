@@ -2,7 +2,7 @@ import Foundation
 
 enum AppInfo {
     static let name = "AI Quota"
-    static let version = "1.3.0"
+    static let version = "1.3.1"
     static let bundleID = "com.flyx.aiquota"
 }
 
@@ -13,7 +13,6 @@ enum MenuBarSource: String, CaseIterable, Hashable {
     case opencodeWeekly = "opencode-weekly"
     case deepseekBalance = "deepseek-balance"
     case tightest
-    case all
 
     var title: String {
         switch self {
@@ -22,7 +21,6 @@ enum MenuBarSource: String, CaseIterable, Hashable {
         case .opencodeWeekly: return "OpenCode 每周额度"
         case .deepseekBalance: return "DeepSeek 余额"
         case .tightest: return "剩余最少的"
-        case .all: return "全部并排"
         }
     }
 
@@ -34,7 +32,7 @@ enum MenuBarSource: String, CaseIterable, Hashable {
         case .claudeWeekly: return ("claude", ClaudeProvider.weeklyKey)
         case .opencodeWeekly: return ("opencode", OpenCodeProvider.weeklyKey)
         case .deepseekBalance: return ("deepseek", DeepSeekProvider.balanceKey)
-        case .tightest, .all: return nil
+        case .tightest: return nil
         }
     }
 }
@@ -56,7 +54,6 @@ struct Config: Codable {
     /// What the menu bar reads out. The panel always shows everything.
     ///   "codex-weekly" — Codex's account-wide weekly quota (default)
     ///   "tightest"     — whichever quota has the least left
-    ///   "all"          — every source side by side
     var menuBarSource: String = MenuBarSource.codexWeekly.rawValue
 
     var menuBar: MenuBarSource {

@@ -9,28 +9,29 @@
 </p>
 
 <p align="center">
-  <img alt="Private beta" src="https://img.shields.io/badge/release-1.3.0_beta_1-1769E8?style=flat-square">
+  <img alt="Source 1.3.1" src="https://img.shields.io/badge/source-1.3.1-1769E8?style=flat-square">
+  <img alt="Beta release" src="https://img.shields.io/badge/beta-1.3.0_beta_1-4A8BFF?style=flat-square">
   <img alt="macOS 14+" src="https://img.shields.io/badge/macOS-14%2B-111111?style=flat-square&logo=apple&logoColor=white">
   <img alt="Apple Silicon" src="https://img.shields.io/badge/Apple_Silicon-arm64-4A8BFF?style=flat-square">
   <img alt="MIT" src="https://img.shields.io/badge/license-MIT-3DA639?style=flat-square">
 </p>
 
 <p align="center">
-  <a href="https://github.com/FlyXingByte/ai-quota/releases/tag/v1.3.0-beta.1"><strong>下载内测版</strong></a>
+  <a href="https://github.com/FlyXingByte/ai-quota/releases/tag/v1.3.0-beta.1"><strong>下载 Beta</strong></a>
   &nbsp;·&nbsp;
   <a href="#第一次使用">第一次使用</a>
   &nbsp;·&nbsp;
   <a href="#隐私边界">隐私边界</a>
 </p>
 
-> **1.3.0 Beta 1 · First-run Ready**<br>
-> 先解释权限、再读取凭据；首次配置不再要求手改 JSON。
+> **Current source · 1.3.1 Compact Menu Bar**<br>
+> 状态栏只显示一个紧凑数字；预编译下载暂为 1.3.0 Beta 1。
 
 <table>
   <tr>
     <td width="50%" valign="top">
       <h3>一眼读完</h3>
-      <p>菜单栏直接显示最关心的周额度、余额，或四个平台并排状态。</p>
+      <p>菜单栏只显示一个紧凑数字；完整来源、窗口和重置时间留在面板。</p>
     </td>
     <td width="50%" valign="top">
       <h3>第一次就会用</h3>
@@ -55,7 +56,7 @@
 
 <p align="center"><sub>首次运行先解释权限，再由用户选择数据源。</sub></p>
 
-## 安装内测版
+## 安装
 
 1. 在 [v1.3.0-beta.1 Release](https://github.com/FlyXingByte/ai-quota/releases/tag/v1.3.0-beta.1) 下载：
    - `AI-Quota-1.3.0-beta.1-macOS-arm64.dmg`（推荐）
@@ -63,7 +64,7 @@
 2. 打开 DMG，把 `AI Quota.app` 拖到 `Applications`。
 3. 从“应用程序”打开 AI Quota，按首次配置向导完成设置。
 
-> 这是 Apple Silicon 内测构建，要求 macOS 14+。当前使用严格可验证的 ad-hoc 签名，但尚未经过 Apple 公证。
+> 这是 Apple Silicon Beta 构建，要求 macOS 14+。当前使用严格可验证的 ad-hoc 签名，但尚未经过 Apple 公证。
 
 ## 第一次使用
 
@@ -119,7 +120,8 @@ https://opencode.ai/workspace/wrk_xxxxx/go
 | OpenCode 每周 | `OC 48%` | OpenCode Go 主力用户 |
 | DeepSeek 余额 | `DS ¥45` | 只关心 API 余额 |
 | 剩余最少 | 自动切换来源 | 只想知道当前最紧张的额度 |
-| 全部并排 | `Cx 56% Cl 87% OC 48% DS ¥45` | 菜单栏空间充足 |
+
+状态栏固定采用单指标紧凑样式，不再提供会长期占用多个位置的“全部并排”模式。
 
 ## 后续修改设置
 
@@ -205,12 +207,18 @@ OpenCode 没有公开额度 API，因此 AI Quota 会复制 Chrome Cookie SQLite
 - OpenCode 页面结构变化后可能需要更新解析器。
 - Claude 使用 Claude Code 当前登录状态；令牌过期时由 Claude Code 自己刷新。
 - DeepSeek 仅提供余额，不提供网页控制台中的详细 Token 曲线。
-- 内测构建未经过 Apple 公证；公开大规模分发前应使用 Developer ID 并完成 notarization。
+- Beta 构建未经过 Apple 公证；大规模分发前应使用 Developer ID 并完成 notarization。
 - Fork 若要以自己的产品名发布，应修改 `com.flyx.aiquota` Bundle ID。
 
 ## License
 
 [MIT](LICENSE) © 2026 FlyXingByte
+
+## 开源与贡献
+
+- 贡献流程：[CONTRIBUTING.md](CONTRIBUTING.md)
+- 安全问题：[SECURITY.md](SECURITY.md)
+- Fork 发布自己的版本前，请更换 `com.flyx.aiquota` Bundle ID 与产品标识。
 
 ---
 

@@ -94,7 +94,10 @@ if args.contains("--self-test") {
     let fresh = Config()
     expect(!fresh.showOpenCode && !fresh.showDeepSeek, "optional sources disabled by default")
     expect(fresh.deepseekKeychainAccount == "default", "generic DeepSeek account")
-    expect(AppInfo.version == "1.3.0", "version")
+    var legacyAll = fresh
+    legacyAll.menuBarSource = "all"
+    expect(legacyAll.menuBar == .codexWeekly, "legacy all mode migrates to compact default")
+    expect(AppInfo.version == "1.3.1", "version")
 
     if failures.isEmpty {
         print("Self-test passed.")
@@ -173,9 +176,7 @@ if args.contains("--probe") {
         print("\n═══ 菜单栏 ═══")
         var snapshot = Snapshot()
         snapshot.cards = cards
-        if config.menuBar == .all {
-            print("  来源: all（每个源并排显示）")
-        } else if let headline = snapshot.headline(for: config.menuBar) {
+        if let headline = snapshot.headline(for: config.menuBar) {
             print("  来源: \(config.menuBar.title) [\(config.menuBarSource)] → \(headline.label)")
             print("  显示: \(headline.tag) \(headline.text)"
                   + (headline.isStandIn
@@ -370,15 +371,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
 
     private func updateStatusTitle() {
         guard let button = statusItem.button else { return }
-        button.image = gaugeImage()
-        button.imagePosition = .imageLeading
+        // Stats-style compact widget: one value, no icon and no provider tag.
+        button.image = nil
+        button.imagePosition = .noImage
         button.attributedTitle = readout()
         var tooltip: [String] = []
         if !store.config.setupCompleted {
             button.toolTip = "AI Quota：需要完成首次设置"
+            button.setAccessibilityLabel("AI Quota，需要完成首次设置")
             return
         }
-        if store.config.menuBar != .all, let headline = store.headline {
+        if let headline = store.headline {
             var heading = "菜单栏显示：\(headline.label)"
             if headline.isStandIn {
                 heading += "（\(store.config.menuBar.title)暂不可用，临时代替）"
@@ -398,132 +401,57 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
             return "\(card.name): " + parts.joined(separator: ", ")
         }
         button.toolTip = tooltip.joined(separator: "\n")
+        if let headline = store.headline {
+            button.setAccessibilityLabel("AI Quota，\(headline.label)，\(headline.text)")
+        } else {
+            button.setAccessibilityLabel("AI Quota，暂无额度")
+        }
     }
 
-    /// One figure per source, tagged, so the bar answers the question without
-    /// anything being opened. Deliberately not minimal: a status item is laid
-    /// out right-to-left from whatever sits beside it, so a longer readout
-    /// reaches further left — out from under the notch on a crowded bar.
+    /// One compact value. Full source, window, and reset details live in the
+    /// tooltip and popover rather than consuming permanent menu-bar width.
     private func readout() -> NSAttributedString {
         if !store.config.setupCompleted {
-            return NSAttributedString(string: " 设置", attributes: [
-                .font: NSFont.systemFont(ofSize: 11, weight: .medium),
+            return NSAttributedString(string: "…", attributes: [
+                .font: NSFont.monospacedDigitSystemFont(ofSize: 12, weight: .semibold),
                 .foregroundColor: NSColor.secondaryLabelColor,
             ])
         }
-        return store.config.menuBar == .all ? everySourceReadout() : singleSourceReadout()
-    }
-
-    /// One number, pinned by config — Codex's weekly quota unless changed. Also
-    /// keeps the status item narrow, which matters on a crowded menu bar.
-    private func singleSourceReadout() -> NSAttributedString {
-        let tagFont = NSFont.systemFont(ofSize: 9, weight: .semibold)
-        let valueFont = NSFont.monospacedDigitSystemFont(ofSize: 12, weight: .medium)
+        let valueFont = NSFont.monospacedDigitSystemFont(ofSize: 12, weight: .semibold)
+        let unitFont = NSFont.systemFont(ofSize: 8, weight: .semibold)
 
         guard let headline = store.headline else {
-            let placeholder = store.hasError ? " !" : " …"
+            let placeholder = store.hasError ? "!" : "…"
             return NSAttributedString(string: placeholder, attributes: [
                 .font: valueFont,
                 .foregroundColor: store.hasError ? NSColor.systemOrange : .secondaryLabelColor,
             ])
         }
-        let line = NSMutableAttributedString()
-        line.append(NSAttributedString(string: " ", attributes: [.font: valueFont]))
-        line.append(NSAttributedString(string: headline.tag + " ", attributes: [
-            .font: tagFont,
-            .foregroundColor: NSColor.secondaryLabelColor,
-            .baselineOffset: 0.5,
-        ]))
-        line.append(NSAttributedString(string: headline.text, attributes: [
-            .font: valueFont,
-            .foregroundColor: headline.remaining.map(AppDelegate.tint) ?? .labelColor,
-        ]))
-        return line
-    }
 
-    private func everySourceReadout() -> NSAttributedString {
-        let tagFont = NSFont.systemFont(ofSize: 9, weight: .semibold)
-        let valueFont = NSFont.monospacedDigitSystemFont(ofSize: 12, weight: .medium)
         let line = NSMutableAttributedString()
-
-        for card in store.snapshot.cards {
-            guard let segment = AppDelegate.segment(for: card) else { continue }
-            line.append(NSAttributedString(string: line.length == 0 ? " " : "  ",
-                                           attributes: [.font: valueFont]))
-            line.append(NSAttributedString(string: card.tag + " ", attributes: [
-                .font: tagFont,
-                .foregroundColor: NSColor.secondaryLabelColor,
-                .baselineOffset: 0.5,
-            ]))
-            line.append(NSAttributedString(string: segment.text, attributes: [
+        if let remaining = headline.remaining {
+            line.append(NSAttributedString(string: "\(Int(remaining))", attributes: [
                 .font: valueFont,
-                .foregroundColor: segment.color,
+                .foregroundColor: AppDelegate.tint(for: remaining),
+            ]))
+            line.append(NSAttributedString(string: "%", attributes: [
+                .font: unitFont,
+                .foregroundColor: AppDelegate.tint(for: remaining),
+                .baselineOffset: 1.5,
+            ]))
+        } else {
+            line.append(NSAttributedString(string: Fmt.compact(headline.text), attributes: [
+                .font: valueFont,
+                .foregroundColor: NSColor.labelColor,
             ]))
         }
-
-        if line.length == 0 {
-            return NSAttributedString(string: " …", attributes: [
-                .font: valueFont, .foregroundColor: NSColor.secondaryLabelColor,
-            ])
-        }
         return line
-    }
-
-    /// What to show for one source: the tightest window as a percentage, a bare
-    /// balance for the sources that report one instead, or a marker on failure.
-    private static func segment(for card: ProviderCard) -> (text: String, color: NSColor)? {
-        if card.error != nil { return ("!", .systemOrange) }
-        if let remaining = card.headlineWindow?.remainingPercent {
-            return ("\(Int(remaining))%", tint(for: remaining))
-        }
-        if var value = card.windows.compactMap(\.value).first {
-            // Cents never matter at a glance and cost four points of bar width.
-            if value.hasSuffix(".00") { value.removeLast(3) }
-            return (value, .labelColor)
-        }
-        return nil
     }
 
     private static func tint(for remaining: Double) -> NSColor {
         QuotaTheme.menuBarColor(for: remaining)
     }
 
-    /// The needle tracks what is left, so a full gauge means plenty of quota.
-    private func gaugeImage() -> NSImage? {
-        let name: String
-        var tint = NSColor.labelColor
-        if !store.config.setupCompleted {
-            let config = NSImage.SymbolConfiguration(pointSize: 13, weight: .regular)
-                .applying(.init(paletteColors: [NSColor.systemBlue]))
-            return NSImage(systemSymbolName: "slider.horizontal.3",
-                           accessibilityDescription: "AI Quota 设置")?
-                .withSymbolConfiguration(config)
-        }
-        // A balance has no ceiling, so there is no needle position to imply —
-        // show a neutral full gauge rather than a made-up level.
-        if let headline = store.headline, let remaining = headline.remaining {
-            if remaining <= 10 {
-                name = "gauge.with.dots.needle.33percent"
-                tint = .systemRed
-            } else if remaining <= 25 {
-                name = "gauge.with.dots.needle.33percent"
-                tint = .systemOrange
-            } else if remaining < 60 {
-                name = "gauge.with.dots.needle.67percent"
-            } else {
-                name = "gauge.with.dots.needle.100percent"
-            }
-        } else if store.hasError {
-            name = "exclamationmark.triangle"
-            tint = .systemOrange
-        } else {
-            name = "gauge.with.dots.needle.33percent"
-        }
-        let config = NSImage.SymbolConfiguration(pointSize: 13, weight: .regular)
-            .applying(.init(paletteColors: [tint]))
-        return NSImage(systemSymbolName: name, accessibilityDescription: "AI 配额")?
-            .withSymbolConfiguration(config)
-    }
 
     @objc private func togglePopover() {
         if popover.isShown {
@@ -533,11 +461,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         }
     }
 
-    /// Anchors the popover to the menu bar icon when that icon is actually on
+    /// Anchors the popover to the menu bar readout when that item is actually on
     /// screen, and otherwise opens the same view as a free-standing window —
     /// so a crowded or notched menu bar never leaves the app unreachable.
     private func showPanel() {
-        Task { await store.refresh() }
+        if store.config.setupCompleted {
+            Task { await store.refresh() }
+        }
 
         if let button = statusItem.button, statusItem.isVisible,
            let window = button.window, AppDelegate.isReachable(window) {
@@ -561,9 +491,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         let areas = [screen.auxiliaryTopLeftArea, screen.auxiliaryTopRightArea].compactMap { $0 }
         guard !areas.isEmpty else { return true }  // no notch on this display
 
-        // A multi-source readout is wide enough to straddle the notch. What
-        // matters is not the fraction in the clear but whether there is enough
-        // of it to aim at — one menu bar item's worth, ~24pt.
+        // A compact status item still needs a normal menu-item-sized target.
         let needed = min(window.frame.width, 24)
         return areas.contains { $0.intersection(window.frame).width >= needed }
     }
@@ -579,7 +507,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         // windowed variant an explicit size and let the user resize from there.
         let hosting = NSHostingController(
             rootView: PopoverView(store: store, onQuit: { NSApp.terminate(nil) })
-                .frame(width: 340, height: 520)
+                .frame(width: 372, height: 520)
         )
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 340, height: 520),
                               styleMask: [.titled, .closable, .resizable],

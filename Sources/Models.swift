@@ -137,7 +137,10 @@ enum Fmt {
 
     /// Menu bar width is scarce and trailing cents never matter at a glance.
     static func compact(_ value: String) -> String {
-        value.hasSuffix(".00") ? String(value.dropLast(3)) : value
+        guard let dot = value.lastIndex(of: ".") else { return value }
+        let decimals = value[value.index(after: dot)...]
+        guard decimals.count == 2, decimals.allSatisfy(\.isNumber) else { return value }
+        return String(value[..<dot])
     }
 }
 
