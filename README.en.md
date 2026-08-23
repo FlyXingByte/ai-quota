@@ -10,7 +10,7 @@
 
 <p align="center">
   <img alt="Source 1.4.0" src="https://img.shields.io/badge/source-1.4.0-1769E8?style=flat-square">
-  <img alt="Beta release" src="https://img.shields.io/badge/beta-1.3.0_beta_1-4A8BFF?style=flat-square">
+  <img alt="Release 1.4.0" src="https://img.shields.io/badge/release-1.4.0-4A8BFF?style=flat-square">
   <img alt="macOS 14+" src="https://img.shields.io/badge/macOS-14%2B-111111?style=flat-square&logo=apple&logoColor=white">
   <img alt="Apple Silicon" src="https://img.shields.io/badge/Apple_Silicon-arm64-4A8BFF?style=flat-square">
   <img alt="MIT" src="https://img.shields.io/badge/license-MIT-3DA639?style=flat-square">
@@ -21,7 +21,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/FlyXingByte/ai-quota/releases/tag/v1.3.0-beta.1"><strong>Download the beta</strong></a>
+  <a href="https://github.com/FlyXingByte/ai-quota/releases/latest"><strong>Download</strong></a>
   &nbsp;·&nbsp;
   <a href="#first-run">First run</a>
   &nbsp;·&nbsp;
@@ -29,7 +29,7 @@
 </p>
 
 > **Current source · 1.4.0 Bilingual and Resilient**<br>
-> The interface follows your system language; a failed read keeps the previous numbers and retries by itself. The prebuilt download is still 1.3.0 Beta 1.
+> The interface follows your system language; a failed read keeps the previous numbers and retries by itself.
 
 <table>
   <tr>
@@ -67,9 +67,9 @@ app, and any other locale falls back to English. Nothing needs to be configured.
 
 ## Install
 
-1. Download from the [v1.3.0-beta.1 release](https://github.com/FlyXingByte/ai-quota/releases/tag/v1.3.0-beta.1):
-   - `AI-Quota-1.3.0-beta.1-macOS-arm64.dmg` (recommended)
-   - or `AI-Quota-1.3.0-beta.1-macOS-arm64.zip`
+1. Download from the [latest release](https://github.com/FlyXingByte/ai-quota/releases/latest):
+   - `AI-Quota-1.4.0-macOS-arm64.dmg` (recommended)
+   - or `AI-Quota-1.4.0-macOS-arm64.zip`
 2. Open the DMG and drag `AI Quota.app` into `Applications`.
 3. Launch AI Quota from Applications and follow the first-run setup.
 
@@ -208,15 +208,15 @@ which survives rebuilds. The certificate is **not** installed as a trusted root;
 A local build, for your own machine only:
 
 ```bash
-./scripts/create-release.sh 1.4.0
-./scripts/verify-release.sh 1.4.0
+./scripts/create-release.sh 1.4.1
+./scripts/verify-release.sh 1.4.1
 ```
 
 For anyone else, the build has to be Developer ID signed and notarized by Apple —
 otherwise Gatekeeper stops it on every other Mac:
 
 ```bash
-./scripts/notarize-release.sh 1.4.0
+./scripts/notarize-release.sh 1.4.1
 ```
 
 That re-signs with the Developer ID certificate (hardened runtime and secure

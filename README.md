@@ -10,7 +10,7 @@
 
 <p align="center">
   <img alt="Source 1.4.0" src="https://img.shields.io/badge/source-1.4.0-1769E8?style=flat-square">
-  <img alt="Beta release" src="https://img.shields.io/badge/beta-1.3.0_beta_1-4A8BFF?style=flat-square">
+  <img alt="Release 1.4.0" src="https://img.shields.io/badge/release-1.4.0-4A8BFF?style=flat-square">
   <img alt="macOS 14+" src="https://img.shields.io/badge/macOS-14%2B-111111?style=flat-square&logo=apple&logoColor=white">
   <img alt="Apple Silicon" src="https://img.shields.io/badge/Apple_Silicon-arm64-4A8BFF?style=flat-square">
   <img alt="MIT" src="https://img.shields.io/badge/license-MIT-3DA639?style=flat-square">
@@ -21,7 +21,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/FlyXingByte/ai-quota/releases/tag/v1.3.0-beta.1"><strong>下载 Beta</strong></a>
+  <a href="https://github.com/FlyXingByte/ai-quota/releases/latest"><strong>下载</strong></a>
   &nbsp;·&nbsp;
   <a href="#第一次使用">第一次使用</a>
   &nbsp;·&nbsp;
@@ -29,7 +29,7 @@
 </p>
 
 > **Current source · 1.4.0 Bilingual and Resilient**<br>
-> 界面随系统语言在简体中文与英文间切换；读取失败保留上次读数并自动重试；预编译下载暂为 1.3.0 Beta 1。
+> 界面随系统语言在简体中文与英文间切换；读取失败保留上次读数并自动重试。
 
 <table>
   <tr>
@@ -66,9 +66,9 @@
 
 ## 安装
 
-1. 在 [v1.3.0-beta.1 Release](https://github.com/FlyXingByte/ai-quota/releases/tag/v1.3.0-beta.1) 下载：
-   - `AI-Quota-1.3.0-beta.1-macOS-arm64.dmg`（推荐）
-   - 或 `AI-Quota-1.3.0-beta.1-macOS-arm64.zip`
+1. 在 [最新 Release](https://github.com/FlyXingByte/ai-quota/releases/latest) 下载：
+   - `AI-Quota-1.4.0-macOS-arm64.dmg`（推荐）
+   - 或 `AI-Quota-1.4.0-macOS-arm64.zip`
 2. 打开 DMG，把 `AI Quota.app` 拖到 `Applications`。
 3. 从“应用程序”打开 AI Quota，按首次配置向导完成设置。
 
@@ -195,14 +195,14 @@ codesign 并不要求链信任。没有它时构建会回退到 ad-hoc，并明�
 本地构建（仅供自己使用）：
 
 ```bash
-./scripts/create-release.sh 1.4.0
-./scripts/verify-release.sh 1.4.0
+./scripts/create-release.sh 1.4.1
+./scripts/verify-release.sh 1.4.1
 ```
 
 面向外部用户，必须走 Developer ID 签名 + Apple 公证——否则别人下载后会被 Gatekeeper 拦下：
 
 ```bash
-./scripts/notarize-release.sh 1.4.0
+./scripts/notarize-release.sh 1.4.1
 ```
 
 它会用 Developer ID 证书重新签名（带 hardened runtime 与安全时间戳，缺任一 Apple 都会拒绝），
