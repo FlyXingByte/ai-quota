@@ -12,7 +12,7 @@ if args.contains("--help") || args.contains("-h") {
     \(AppInfo.name) \(AppInfo.version)
 
       --probe            读取全部配额并打印为文本，然后退出
-      --dump <来源>      抓取原始响应（opencode | billing | codex | claude）
+      --dump <来源>      抓取原始响应（opencode | billing | codex | claude | deepseek）
       --snapshot         把面板离屏渲染成 ~/Desktop/ai-quota-preview.png
       --config           打印配置文件路径和当前内容
       --identity         打印 App 身份、图标和登录项状态
@@ -135,6 +135,15 @@ if let dumpIndex = args.firstIndex(of: "--dump") {
         case "codex":
             let card = await CodexProvider().fetch()
             print(card.error ?? "ok: \(card.windows.count) 个窗口, notes=\(card.notes)")
+        case "deepseek":
+            // Repeats the balance query so it is possible to tell whether the
+            // query itself costs anything.
+            let provider = DeepSeekProvider()
+            for i in 1...5 {
+                let card = await provider.fetch()
+                let value = card.windows.first?.value ?? card.error ?? "—"
+                print("第 \(i) 次: \(value)")
+            }
         case "claude":
             do {
                 let json = try await ClaudeProvider().rawUsage()
@@ -385,11 +394,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
     }
 
     private static func tint(for remaining: Double) -> NSColor {
-        switch remaining {
-        case ..<10: return .systemRed
-        case ..<25: return .systemOrange
-        default: return .systemGreen
-        }
+        QuotaTheme.menuBarColor(for: remaining)
     }
 
     /// The needle tracks what is left, so a full gauge means plenty of quota.
@@ -399,11 +404,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         // A balance has no ceiling, so there is no needle position to imply —
         // show a neutral full gauge rather than a made-up level.
         if let headline = store.headline, let remaining = headline.remaining {
-            switch remaining {
-            case ..<10: name = "gauge.with.dots.needle.33percent"; tint = .systemRed
-            case ..<25: name = "gauge.with.dots.needle.33percent"; tint = .systemOrange
-            case ..<60: name = "gauge.with.dots.needle.67percent"
-            default: name = "gauge.with.dots.needle.100percent"
+            if remaining <= 10 {
+                name = "gauge.with.dots.needle.33percent"
+                tint = .systemRed
+            } else if remaining <= 25 {
+                name = "gauge.with.dots.needle.33percent"
+                tint = .systemOrange
+            } else if remaining < 60 {
+                name = "gauge.with.dots.needle.67percent"
+            } else {
+                name = "gauge.with.dots.needle.100percent"
             }
         } else if store.hasError {
             name = "exclamationmark.triangle"

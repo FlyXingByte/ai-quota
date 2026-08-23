@@ -32,8 +32,8 @@ cat > "$APP/Contents/Info.plist" <<'PLIST'
   <key>CFBundleInfoDictionaryVersion</key> <string>6.0</string>
   <key>CFBundleExecutable</key>      <string>AIQuota</string>
   <key>CFBundlePackageType</key>     <string>APPL</string>
-  <key>CFBundleShortVersionString</key> <string>1.1.0</string>
-  <key>CFBundleVersion</key>         <string>2</string>
+  <key>CFBundleShortVersionString</key> <string>1.2.0</string>
+  <key>CFBundleVersion</key>         <string>3</string>
   <key>CFBundleIconFile</key>        <string>AppIcon.icns</string>
   <key>LSApplicationCategoryType</key> <string>public.app-category.productivity</string>
   <key>LSMinimumSystemVersion</key>  <string>14.0</string>
@@ -52,25 +52,18 @@ if [ -f "$ROOT/Resources/AppIcon.icns" ]; then
   cp "$ROOT/Resources/AppIcon.icns" "$APP/Contents/Resources/AppIcon.icns"
 fi
 
-# Prefer the local signing identity: it gives a designated requirement that
-# survives rebuilds, so TCC grants are not silently revoked every install.
-#
-# Do NOT gate this on `find-identity -v`. A self-signed cert that was never
-# installed as a trusted root is reported there as CSSMERR_TP_NOT_TRUSTED and
-# filtered out — but codesign signs with it happily and `--verify --strict`
-# passes, because that checks signature integrity, not chain trust. Gating on
-# -v just means every build silently degrades to ad-hoc.
+# Use a named signing identity only when macOS reports it as valid. An imported
+# but untrusted self-signed certificate can make codesign appear to succeed while
+# strict verification fails with CSSMERR_TP_NOT_TRUSTED.
 SIGN_ID="${AIQUOTA_SIGN_IDENTITY:-AI Quota Local Signing}"
-if security find-identity -p codesigning 2>/dev/null | grep -Fq "\"$SIGN_ID\"" \
-   && codesign --force --deep --sign "$SIGN_ID" "$APP" 2>/dev/null \
-   && codesign --verify --deep --strict "$APP" 2>/dev/null; then
+if security find-identity -v -p codesigning 2>/dev/null | grep -Fq "\"$SIGN_ID\""; then
   echo "==> 签名 ($SIGN_ID)"
+  codesign --force --deep --sign "$SIGN_ID" "$APP"
 else
-  echo "==> 签名 (ad-hoc — 找不到 \"$SIGN_ID\"，跑 ./make-signing-cert.sh 生成)"
-  echo "    注意：ad-hoc 的指定要求是 cdhash，每次重编译都会让已授过的权限失效。"
+  echo "==> 签名 (ad-hoc — 没有可验证的本地签名身份)"
   codesign --force --deep --sign - "$APP"
-  codesign --verify --deep --strict "$APP"
 fi
+codesign --verify --deep --strict "$APP"
 
 echo "==> 完成: $APP"
 "$APP/Contents/MacOS/$BIN_NAME" --help >/dev/null && echo "==> 二进制可运行"

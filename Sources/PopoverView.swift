@@ -7,7 +7,7 @@ struct PopoverView: View {
     var onQuit: () -> Void
 
     @State private var launchAtLogin = SMAppService.mainApp.status == .enabled
-    @State private var note: String?
+    @State private var feedback: FeedbackMessage?
 
     private var needsWorkspaceID: Bool {
         store.config.showOpenCode && store.config.opencodeWorkspaceID.isEmpty
@@ -25,24 +25,44 @@ struct PopoverView: View {
             Divider()
             footer
         }
-        .frame(width: 340)
+        .frame(width: 372)
+        .tint(QuotaTheme.brand)
     }
 
     private var header: some View {
-        HStack(spacing: 8) {
-            Image(systemName: "gauge.with.dots.needle.67percent")
-                .foregroundStyle(.tint)
-            Text("AI 配额").font(.system(size: 13, weight: .semibold))
+        HStack(spacing: 9) {
+            ZStack {
+                Circle().fill(QuotaTheme.brand.opacity(0.14))
+                Image(systemName: "gauge.with.dots.needle.67percent")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(QuotaTheme.brand)
+            }
+            .frame(width: 23, height: 23)
+
+            VStack(alignment: .leading, spacing: 0) {
+                Text("AI Quota")
+                    .font(.system(size: 13, weight: .semibold))
+                Text("额度概览")
+                    .font(.system(size: 9))
+                    .foregroundStyle(.secondary)
+            }
             Spacer()
             if store.snapshot.refreshing {
-                ProgressView().controlSize(.small).scaleEffect(0.7)
+                ProgressView()
+                    .controlSize(.small)
+                    .scaleEffect(0.75)
+                    .frame(width: 24, height: 24)
             } else {
                 Button {
                     Task { await store.refresh() }
                 } label: {
                     Image(systemName: "arrow.clockwise")
+                        .font(.system(size: 11, weight: .medium))
                 }
-                .buttonStyle(.borderless)
+                .buttonStyle(.plain)
+                .frame(width: 24, height: 24)
+                .background(Color.primary.opacity(0.055), in: Circle())
+                .contentShape(Circle())
                 .help("立即刷新")
             }
         }
@@ -64,15 +84,15 @@ struct PopoverView: View {
             .padding(.vertical, 28)
         } else {
             ScrollView {
-                VStack(alignment: .leading, spacing: 14) {
+                VStack(alignment: .leading, spacing: 10) {
                     ForEach(store.snapshot.cards) { card in
                         CardView(card: card)
                     }
                 }
-                .padding(.horizontal, 14)
-                .padding(.vertical, 12)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 10)
             }
-            .frame(maxHeight: 460)
+            .frame(maxHeight: 490)
         }
     }
 
@@ -93,15 +113,18 @@ struct PopoverView: View {
             }
             Spacer()
         }
-        .padding(.horizontal, 14)
+        .padding(10)
+        .background(QuotaTheme.brand.opacity(0.07),
+                    in: RoundedRectangle(cornerRadius: 9, style: .continuous))
+        .padding(.horizontal, 12)
         .padding(.vertical, 8)
     }
 
     private var footer: some View {
         HStack(spacing: 10) {
-            Text(note ?? "更新于 \(Fmt.stamp(store.snapshot.updatedAt))")
+            Text(feedback?.text ?? "更新于 \(Fmt.stamp(store.snapshot.updatedAt))")
                 .font(.system(size: 10))
-                .foregroundStyle(note == nil ? AnyShapeStyle(.secondary) : AnyShapeStyle(.orange))
+                .foregroundStyle(feedback?.tone.color ?? .secondary)
                 .lineLimit(1)
             Spacer()
             Menu {
@@ -139,9 +162,11 @@ struct PopoverView: View {
                 set: { chosen in
                     do {
                         try store.setMenuBarSource(chosen)
-                        note = "菜单栏改为显示：\(chosen.title)"
+                        feedback = FeedbackMessage(text: "菜单栏显示：\(chosen.title)",
+                                                   tone: .success)
                     } catch {
-                        note = "设置保存失败：\(error.localizedDescription)"
+                        feedback = FeedbackMessage(text: "设置保存失败：\(error.localizedDescription)",
+                                                   tone: .error)
                     }
                 })
     }
@@ -153,9 +178,11 @@ struct PopoverView: View {
             } else {
                 try SMAppService.mainApp.unregister()
             }
-            note = enabled ? "已加入登录项" : "已移出登录项"
+            feedback = FeedbackMessage(text: enabled ? "已加入登录项" : "已移出登录项",
+                                       tone: .success)
         } catch {
-            note = "登录项设置失败：\(error.localizedDescription)"
+            feedback = FeedbackMessage(text: "登录项设置失败：\(error.localizedDescription)",
+                                       tone: .error)
             launchAtLogin = SMAppService.mainApp.status == .enabled
         }
     }
@@ -169,7 +196,7 @@ struct PopoverView: View {
         if !NSWorkspace.shared.open(Config.fileURL) {
             NSWorkspace.shared.activateFileViewerSelecting([Config.fileURL])
         }
-        note = "改完保存，下次刷新自动生效"
+        feedback = FeedbackMessage(text: "保存配置后，下次刷新自动生效", tone: .neutral)
     }
 }
 
@@ -177,15 +204,25 @@ private struct CardView: View {
     let card: ProviderCard
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 7) {
-            HStack(spacing: 6) {
-                Text(card.name).font(.system(size: 12, weight: .semibold))
+        VStack(alignment: .leading, spacing: 9) {
+            HStack(spacing: 8) {
+                Text(card.tag)
+                    .font(.system(size: 9, weight: .bold, design: .rounded))
+                    .foregroundStyle(QuotaTheme.brand)
+                    .frame(minWidth: 25, minHeight: 20)
+                    .padding(.horizontal, 2)
+                    .background(QuotaTheme.brand.opacity(0.13),
+                                in: RoundedRectangle(cornerRadius: 6, style: .continuous))
+
+                Text(card.name)
+                    .font(.system(size: 12.5, weight: .semibold))
                 if let subtitle = card.subtitle {
                     Text(subtitle)
                         .font(.system(size: 10))
                         .foregroundStyle(.secondary)
-                        .padding(.horizontal, 5).padding(.vertical, 1)
-                        .background(Color.secondary.opacity(0.12), in: Capsule())
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 2)
+                        .background(Color.secondary.opacity(0.11), in: Capsule())
                 }
                 Spacer()
                 if let link = card.link {
@@ -193,9 +230,11 @@ private struct CardView: View {
                         NSWorkspace.shared.open(link)
                     } label: {
                         Image(systemName: "arrow.up.forward.square")
-                            .font(.system(size: 10))
+                            .font(.system(size: 10, weight: .medium))
                     }
-                    .buttonStyle(.borderless)
+                    .buttonStyle(.plain)
+                    .frame(width: 24, height: 24)
+                    .contentShape(Rectangle())
                     .help("在浏览器里打开")
                 }
             }
@@ -205,6 +244,10 @@ private struct CardView: View {
                     .font(.system(size: 10))
                     .foregroundStyle(.orange)
                     .fixedSize(horizontal: false, vertical: true)
+                    .padding(7)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(Color.orange.opacity(0.09),
+                                in: RoundedRectangle(cornerRadius: 7, style: .continuous))
             }
 
             ForEach(card.windows) { window in
@@ -212,11 +255,36 @@ private struct CardView: View {
             }
 
             ForEach(card.notes, id: \.self) { note in
-                Text(note)
-                    .font(.system(size: 10))
-                    .foregroundStyle(.secondary)
+                NoteRow(text: note)
             }
         }
+        .padding(11)
+        .background(QuotaTheme.cardFill,
+                    in: RoundedRectangle(cornerRadius: 11, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 11, style: .continuous)
+                .stroke(QuotaTheme.cardStroke, lineWidth: 0.65)
+        }
+        .accessibilityElement(children: .contain)
+    }
+}
+
+private struct NoteRow: View {
+    let text: String
+
+    private var needsAttention: Bool {
+        text.contains("未启用") || text.contains("已用尽")
+    }
+
+    var body: some View {
+        HStack(alignment: .firstTextBaseline, spacing: 5) {
+            Image(systemName: needsAttention ? "pause.circle.fill" : "info.circle")
+                .font(.system(size: 9))
+            Text(text)
+                .font(.system(size: 10))
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .foregroundStyle(needsAttention ? AnyShapeStyle(.orange) : AnyShapeStyle(.secondary))
     }
 }
 
@@ -224,44 +292,57 @@ private struct WindowRow: View {
     let window: QuotaWindow
 
     private var color: Color {
-        guard window.remainingPercent != nil else { return .secondary }
-        if window.isCritical { return .red }
-        if window.isWarning { return .orange }
-        return .green
+        guard let remaining = window.remainingPercent else { return .secondary }
+        return QuotaTheme.quotaColor(for: remaining)
+    }
+
+    private var statusSymbol: String? {
+        if window.isCritical { return "exclamationmark.octagon.fill" }
+        if window.isWarning { return "exclamationmark.triangle.fill" }
+        return nil
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 3) {
+        VStack(alignment: .leading, spacing: 4) {
             HStack(spacing: 6) {
                 Text(window.label)
                     .font(.system(size: 11))
                     .lineLimit(1)
                 Spacer()
                 if let remaining = window.remainingPercent {
-                    // Labelled explicitly: a bare percentage next to a quota is
-                    // ambiguous about which direction it counts.
-                    Text("剩余 \(Int(remaining))%")
-                        .font(.system(size: 11, weight: .medium).monospacedDigit())
-                        .foregroundStyle(color)
+                    HStack(spacing: 4) {
+                        if let statusSymbol {
+                            Image(systemName: statusSymbol)
+                                .font(.system(size: 9))
+                        }
+                        Text("剩余 \(Int(remaining))%")
+                            .font(.system(size: 12, weight: .semibold).monospacedDigit())
+                    }
+                    .foregroundStyle(color)
                 } else if let value = window.value {
                     Text(value)
-                        .font(.system(size: 11, weight: .medium).monospacedDigit())
+                        .font(.system(size: 12, weight: .semibold).monospacedDigit())
+                        .padding(.horizontal, 7)
+                        .padding(.vertical, 2)
+                        .background(Color.primary.opacity(0.065), in: Capsule())
                 }
             }
             if let remaining = window.remainingPercent {
                 // The bar drains as the quota is spent.
                 GeometryReader { geo in
                     ZStack(alignment: .leading) {
-                        Capsule().fill(Color.secondary.opacity(0.15))
+                        Capsule().fill(QuotaTheme.track)
                         Capsule().fill(color)
-                            .frame(width: max(2, geo.size.width * min(1, remaining / 100)))
+                            .frame(width: max(3, geo.size.width * min(1, remaining / 100)))
                     }
                 }
-                .frame(height: 4)
+                .frame(height: 6)
+                .animation(.easeOut(duration: 0.25), value: remaining)
+                .accessibilityLabel("\(window.label)，剩余 \(Int(remaining))%")
             }
             if let reset = Fmt.relative(window.resetsAt) {
                 Text(reset)
-                    .font(.system(size: 9))
+                    .font(.system(size: 10))
                     .foregroundStyle(.secondary)
             }
         }
