@@ -9,7 +9,7 @@
 </p>
 
 <p align="center">
-  <img alt="Source 1.3.1" src="https://img.shields.io/badge/source-1.3.1-1769E8?style=flat-square">
+  <img alt="Source 1.3.3" src="https://img.shields.io/badge/source-1.3.3-1769E8?style=flat-square">
   <img alt="Beta release" src="https://img.shields.io/badge/beta-1.3.0_beta_1-4A8BFF?style=flat-square">
   <img alt="macOS 14+" src="https://img.shields.io/badge/macOS-14%2B-111111?style=flat-square&logo=apple&logoColor=white">
   <img alt="Apple Silicon" src="https://img.shields.io/badge/Apple_Silicon-arm64-4A8BFF?style=flat-square">
@@ -24,14 +24,14 @@
   <a href="#隐私边界">隐私边界</a>
 </p>
 
-> **Current source · 1.3.1 Compact Menu Bar**<br>
-> 状态栏只显示一个紧凑数字；预编译下载暂为 1.3.0 Beta 1。
+> **Current source · 1.3.3 Stacked Compact Widget**<br>
+> 状态栏在同一格中上方显示 `AI`、下方显示额度；预编译下载暂为 1.3.0 Beta 1。
 
 <table>
   <tr>
     <td width="50%" valign="top">
       <h3>一眼读完</h3>
-      <p>菜单栏只显示一个紧凑数字；完整来源、窗口和重置时间留在面板。</p>
+      <p>菜单栏同一格上方显示 AI、下方显示额度；完整来源与重置时间留在面板。</p>
     </td>
     <td width="50%" valign="top">
       <h3>第一次就会用</h3>
@@ -121,7 +121,7 @@ https://opencode.ai/workspace/wrk_xxxxx/go
 | DeepSeek 余额 | `DS ¥45` | 只关心 API 余额 |
 | 剩余最少 | 自动切换来源 | 只想知道当前最紧张的额度 |
 
-状态栏固定采用单指标紧凑样式，不再提供会长期占用多个位置的“全部并排”模式。
+状态栏固定采用两行单指标样式，例如上方 `AI`、下方 `56%`，不再提供会占用多个位置的“全部并排”模式。
 
 ## 后续修改设置
 

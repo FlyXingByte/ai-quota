@@ -86,7 +86,7 @@ if args.contains("--self-test") {
        let migrated = try? JSONDecoder().decode(Config.self, from: data) {
         expect(migrated.opencodeWorkspaceID == sampleWorkspace, "legacy workspace migration")
         expect(migrated.deepseekKeychainAccount == "codex", "legacy keychain migration")
-        expect(!migrated.setupCompleted, "legacy config enters onboarding")
+        expect(migrated.setupCompleted, "legacy config skips onboarding")
     } else {
         failures.append("legacy config decoding")
     }
@@ -97,7 +97,7 @@ if args.contains("--self-test") {
     var legacyAll = fresh
     legacyAll.menuBarSource = "all"
     expect(legacyAll.menuBar == .codexWeekly, "legacy all mode migrates to compact default")
-    expect(AppInfo.version == "1.3.1", "version")
+    expect(AppInfo.version == "1.3.3", "version")
 
     if failures.isEmpty {
         print("Self-test passed.")
@@ -289,18 +289,26 @@ if args.contains("--snapshot") {
 
 // MARK: - Menu bar app
 
+/// The labels must not intercept the status button's click target.
+private final class StatusTextField: NSTextField {
+    override func hitTest(_ point: NSPoint) -> NSView? { nil }
+}
+
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
     private var statusItem: NSStatusItem!
+    private var statusTopLabel: StatusTextField!
+    private var statusValueLabel: StatusTextField!
     private var popover: NSPopover!
     private var panelWindow: NSWindow?
     private let store = QuotaStore()
     private var cancellable: AnyCancellable?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
+        statusItem = NSStatusBar.system.statusItem(withLength: 36)
         statusItem.button?.action = #selector(togglePopover)
         statusItem.button?.target = self
+        configureStatusLabels()
 
         popover = NSPopover()
         popover.behavior = .transient
@@ -333,13 +341,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
 
     /// macOS silently drops menu bar items that do not fit — common on notched
     /// displays with a crowded bar. Record where the button actually landed so
-    /// "I can't see the icon" can be diagnosed without a screenshot.
+    /// "I can't see the readout" can be diagnosed without a screenshot.
     private func logStatusItemPlacement() {
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { [weak self] in
             MainActor.assumeIsolated {
                 guard let self else { return }
                 var lines = ["[\(Date())] 启动"]
                 lines.append("statusItem.isVisible = \(self.statusItem.isVisible)")
+                lines.append("状态顶部 = \(self.statusTopLabel.stringValue)")
+                lines.append("状态底部字符数 = \(self.statusValueLabel.attributedStringValue.string.count)")
+                lines.append("状态图标 = \(self.statusItem.button?.image == nil ? "无" : "有")")
+                lines.append("顶部 frame = \(NSStringFromRect(self.statusTopLabel.frame))")
+                lines.append("底部 frame = \(NSStringFromRect(self.statusValueLabel.frame))")
                 if let window = self.statusItem.button?.window {
                     lines.append("按钮窗口 frame = \(NSStringFromRect(window.frame))")
                     if let screen = window.screen {
@@ -348,7 +361,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
                         lines.append("刘海右侧可用区 = \(screen.auxiliaryTopRightArea.map(NSStringFromRect) ?? "无刘海")")
                         lines.append("能否点到 = \(AppDelegate.isReachable(window))")
                     } else {
-                        lines.append("⚠︎ 按钮窗口没有关联屏幕 — 图标很可能被挤掉了")
+                        lines.append("⚠︎ 按钮窗口没有关联屏幕 — 状态项很可能被挤掉了")
                     }
                 } else {
                     lines.append("⚠︎ 按钮没有窗口 — 状态项没有真正显示")
@@ -361,6 +374,40 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         }
     }
 
+    private func configureStatusLabels() {
+        guard let button = statusItem.button else { return }
+        button.title = ""
+        button.attributedTitle = NSAttributedString(string: "")
+        button.image = nil
+        button.imagePosition = .noImage
+
+        statusTopLabel = StatusTextField(labelWithString: "AI")
+        statusTopLabel.alignment = .left
+        statusTopLabel.font = NSFont.systemFont(ofSize: 8.5, weight: .medium)
+        statusTopLabel.textColor = .labelColor
+        statusTopLabel.lineBreakMode = .byClipping
+        statusTopLabel.translatesAutoresizingMaskIntoConstraints = false
+
+        statusValueLabel = StatusTextField(labelWithString: "…")
+        statusValueLabel.alignment = .left
+        statusValueLabel.lineBreakMode = .byClipping
+        statusValueLabel.translatesAutoresizingMaskIntoConstraints = false
+
+        button.addSubview(statusTopLabel)
+        button.addSubview(statusValueLabel)
+        NSLayoutConstraint.activate([
+            statusTopLabel.topAnchor.constraint(equalTo: button.topAnchor, constant: 0.5),
+            statusTopLabel.leadingAnchor.constraint(equalTo: button.leadingAnchor, constant: 2),
+            statusTopLabel.trailingAnchor.constraint(equalTo: button.trailingAnchor, constant: -1),
+            statusTopLabel.heightAnchor.constraint(equalToConstant: 9.5),
+            statusValueLabel.topAnchor.constraint(equalTo: statusTopLabel.bottomAnchor, constant: -1),
+            statusValueLabel.leadingAnchor.constraint(equalTo: button.leadingAnchor, constant: 2),
+            statusValueLabel.trailingAnchor.constraint(equalTo: button.trailingAnchor, constant: -1),
+            statusValueLabel.bottomAnchor.constraint(equalTo: button.bottomAnchor, constant: -0.5),
+        ])
+        button.layoutSubtreeIfNeeded()
+    }
+
     /// Re-launching the app (double-clicking it in Finder) has no visible effect
     /// for a menu bar app — macOS just activates the existing instance. Treat it
     /// as "show me the panel" instead.
@@ -371,10 +418,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
 
     private func updateStatusTitle() {
         guard let button = statusItem.button else { return }
-        // Stats-style compact widget: one value, no icon and no provider tag.
+        // Stats-style compact widget: two real text layers, not a multiline
+        // NSButton title (which AppKit visually clips to one line).
         button.image = nil
         button.imagePosition = .noImage
-        button.attributedTitle = readout()
+        button.attributedTitle = NSAttributedString(string: "")
+        statusTopLabel.stringValue = "AI"
+        statusValueLabel.attributedStringValue = valueReadout()
+        button.layoutSubtreeIfNeeded()
         var tooltip: [String] = []
         if !store.config.setupCompleted {
             button.toolTip = "AI Quota：需要完成首次设置"
@@ -408,17 +459,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         }
     }
 
-    /// One compact value. Full source, window, and reset details live in the
-    /// tooltip and popover rather than consuming permanent menu-bar width.
-    private func readout() -> NSAttributedString {
+    /// The bottom line of the fixed two-layer status item.
+    private func valueReadout() -> NSAttributedString {
         if !store.config.setupCompleted {
             return NSAttributedString(string: "…", attributes: [
-                .font: NSFont.monospacedDigitSystemFont(ofSize: 12, weight: .semibold),
+                .font: NSFont.monospacedDigitSystemFont(ofSize: 13, weight: .regular),
                 .foregroundColor: NSColor.secondaryLabelColor,
             ])
         }
-        let valueFont = NSFont.monospacedDigitSystemFont(ofSize: 12, weight: .semibold)
-        let unitFont = NSFont.systemFont(ofSize: 8, weight: .semibold)
+        let valueFont = NSFont.monospacedDigitSystemFont(ofSize: 13, weight: .regular)
+        let unitFont = NSFont.systemFont(ofSize: 8, weight: .regular)
 
         guard let headline = store.headline else {
             let placeholder = store.hasError ? "!" : "…"

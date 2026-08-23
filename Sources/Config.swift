@@ -2,7 +2,7 @@ import Foundation
 
 enum AppInfo {
     static let name = "AI Quota"
-    static let version = "1.3.1"
+    static let version = "1.3.3"
     static let bundleID = "com.flyx.aiquota"
 }
 
@@ -121,7 +121,14 @@ extension Config {
         showClaude = value(.showClaude, fallback.showClaude)
         showOpenCode = value(.showOpenCode, fallback.showOpenCode)
         showDeepSeek = value(.showDeepSeek, fallback.showDeepSeek)
-        setupCompleted = value(.setupCompleted, fallback.setupCompleted)
+        // A decoded file is necessarily an existing installation. Before 1.3.0
+        // this key did not exist, so migrate it to completed instead of forcing
+        // established users back through onboarding. A truly fresh install has
+        // no file and still receives Config().setupCompleted == false.
+        // The unfinished first-run flow never writes a file, so any decodable
+        // on-disk config belongs to an established installation. This also
+        // repairs the short-lived beta that could persist `false` indirectly.
+        setupCompleted = true
         menuBarSource = value(.menuBarSource, fallback.menuBarSource)
     }
 }
