@@ -21,19 +21,12 @@ enum ChromeCookies {
     /// Fetches the Safe Storage password. Prompts once, then the user can
     /// "Always Allow" and this stays silent.
     static func safeStoragePassword() throws -> String {
-        let query: [String: Any] = [
-            kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: "Chrome Safe Storage",
-            kSecAttrAccount as String: "Chrome",
-            kSecReturnData as String: true,
-            kSecMatchLimit as String: kSecMatchLimitOne,
-        ]
-        var item: CFTypeRef?
-        let status = SecItemCopyMatching(query as CFDictionary, &item)
-        if status == errSecSuccess, let data = item as? Data,
+        let result = Keychain.read(service: "Chrome Safe Storage", account: "Chrome")
+        if result.status == errSecSuccess, let data = result.data,
            let pw = String(data: data, encoding: .utf8) {
             return pw
         }
+        let status = result.status
         // Fall back to the `security` CLI, which some keychain ACLs accept when
         // a freshly-signed binary does not.
         if let pw = try? Shell.run("/usr/bin/security",
@@ -43,7 +36,7 @@ enum ChromeCookies {
            !pw.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             return pw.trimmingCharacters(in: .whitespacesAndNewlines)
         }
-        throw QuotaError.message("无法读取钥匙串 \"Chrome Safe Storage\"（状态 \(status)）。首次运行请在弹窗里点\"始终允许\"。")
+        throw QuotaError.message(Keychain.explain(status, item: "Chrome Safe Storage"))
     }
 
     static func encryptionKey() throws -> Data {

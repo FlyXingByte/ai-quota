@@ -7,8 +7,12 @@ struct CodexProvider: QuotaProvider {
     let id = "codex"
     let name = "Codex"
 
+    /// The account-wide weekly limit — the number that actually governs a week
+    /// of work, and the menu bar's default readout.
+    static let weeklyKey = "codex.weekly"
+
     func fetch() async -> ProviderCard {
-        var card = ProviderCard(id: id, name: name,
+        var card = ProviderCard(id: id, name: name, shortName: "Cx",
                                 link: URL(string: "https://chatgpt.com/codex/settings/usage"))
         guard let bin = Shell.locate("codex") else {
             card.error = "找不到 codex 命令（试过 ~/.local/bin、homebrew）"
@@ -124,7 +128,12 @@ struct CodexProvider: QuotaProvider {
                 if let ts = (window["resetsAt"] as? NSNumber)?.doubleValue, ts > 0 {
                     resets = Date(timeIntervalSince1970: ts)
                 }
+                // The account-wide weekly window is the one the menu bar pins to,
+                // so tag it rather than leaving the UI to match on label text.
+                let key = (limitID == "codex" && mins == 10080)
+                    ? CodexProvider.weeklyKey : nil
                 card.windows.append(QuotaWindow(label: label,
+                                                key: key,
                                                 usedPercent: used.doubleValue,
                                                 resetsAt: resets))
             }

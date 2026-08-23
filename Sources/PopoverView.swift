@@ -1,16 +1,27 @@
 import AppKit
+import ServiceManagement
 import SwiftUI
 
 struct PopoverView: View {
     @ObservedObject var store: QuotaStore
     var onQuit: () -> Void
-    var onOpenSettings: () -> Void
+
+    @State private var launchAtLogin = SMAppService.mainApp.status == .enabled
+    @State private var note: String?
+
+    private var needsWorkspaceID: Bool {
+        store.config.showOpenCode && store.config.opencodeWorkspaceID.isEmpty
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             header
             Divider()
             content
+            if needsWorkspaceID {
+                Divider()
+                workspaceHint
+            }
             Divider()
             footer
         }
@@ -65,19 +76,100 @@ struct PopoverView: View {
         }
     }
 
-    private var footer: some View {
-        HStack(spacing: 10) {
-            Text("更新于 \(Fmt.stamp(store.snapshot.updatedAt))")
+    /// Without a workspace ID the OpenCode card simply never appears, which
+    /// looks like a bug rather than a missing setting. Say so, and offer the
+    /// one place that setting now lives.
+    private var workspaceHint: some View {
+        HStack(alignment: .top, spacing: 6) {
+            Image(systemName: "info.circle")
                 .font(.system(size: 10))
                 .foregroundStyle(.secondary)
+            VStack(alignment: .leading, spacing: 3) {
+                Text("OpenCode 还没配工作区 ID")
+                    .font(.system(size: 11))
+                Button("打开配置文件…") { openConfigFile() }
+                    .buttonStyle(.borderless)
+                    .font(.system(size: 10))
+            }
             Spacer()
-            Button("设置", action: onOpenSettings)
-                .buttonStyle(.borderless).font(.system(size: 11))
-            Button("退出", action: onQuit)
-                .buttonStyle(.borderless).font(.system(size: 11))
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 8)
+    }
+
+    private var footer: some View {
+        HStack(spacing: 10) {
+            Text(note ?? "更新于 \(Fmt.stamp(store.snapshot.updatedAt))")
+                .font(.system(size: 10))
+                .foregroundStyle(note == nil ? AnyShapeStyle(.secondary) : AnyShapeStyle(.orange))
+                .lineLimit(1)
+            Spacer()
+            Menu {
+                Button("立即刷新") { Task { await store.refresh() } }
+                Divider()
+                // A Picker inside a Menu renders as a submenu with a checkmark
+                // on the active row — the native way to offer this choice.
+                Picker("菜单栏显示", selection: menuBarSource) {
+                    ForEach(MenuBarSource.allCases, id: \.self) { source in
+                        Text(source.title).tag(source)
+                    }
+                }
+                Divider()
+                Toggle("开机自动启动", isOn: $launchAtLogin)
+                Button("打开配置文件…") { openConfigFile() }
+                Divider()
+                Button("退出 AI Quota", action: onQuit)
+            } label: {
+                Image(systemName: "ellipsis.circle")
+            }
+            .menuStyle(.borderlessButton)
+            .menuIndicator(.hidden)
+            .fixedSize()
+            .help("更多")
+            .onChange(of: launchAtLogin) { _, enabled in
+                setLaunchAtLogin(enabled)
+            }
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 8)
+    }
+
+    private var menuBarSource: Binding<MenuBarSource> {
+        Binding(get: { store.config.menuBar },
+                set: { chosen in
+                    do {
+                        try store.setMenuBarSource(chosen)
+                        note = "菜单栏改为显示：\(chosen.title)"
+                    } catch {
+                        note = "设置保存失败：\(error.localizedDescription)"
+                    }
+                })
+    }
+
+    private func setLaunchAtLogin(_ enabled: Bool) {
+        do {
+            if enabled {
+                try SMAppService.mainApp.register()
+            } else {
+                try SMAppService.mainApp.unregister()
+            }
+            note = enabled ? "已加入登录项" : "已移出登录项"
+        } catch {
+            note = "登录项设置失败：\(error.localizedDescription)"
+            launchAtLogin = SMAppService.mainApp.status == .enabled
+        }
+    }
+
+    /// config.json is the whole settings surface now, so this has to work even
+    /// on a fresh install where the file has not been written yet.
+    private func openConfigFile() {
+        if !FileManager.default.fileExists(atPath: Config.fileURL.path) {
+            try? store.config.save()
+        }
+        if !NSWorkspace.shared.open(Config.fileURL) {
+            NSWorkspace.shared.activateFileViewerSelecting([Config.fileURL])
+        }
+        note = "改完保存，下次刷新自动生效"
     }
 }
 

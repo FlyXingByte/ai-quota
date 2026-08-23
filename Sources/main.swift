@@ -12,7 +12,7 @@ if args.contains("--help") || args.contains("-h") {
     \(AppInfo.name) \(AppInfo.version)
 
       --probe            读取全部配额并打印为文本，然后退出
-      --dump <来源>      抓取原始响应存盘（opencode | billing | codex）
+      --dump <来源>      抓取原始响应（opencode | billing | codex | claude）
       --snapshot         把面板离屏渲染成 ~/Desktop/ai-quota-preview.png
       --config           打印配置文件路径和当前内容
       --identity         打印 App 身份、图标和登录项状态
@@ -58,9 +58,10 @@ if args.contains("--config") {
 
 if args.contains("--probe") {
     let semaphore = DispatchSemaphore(value: 0)
+    let config = Config.load()
     Task {
         let cards = await withTaskGroup(of: (Int, ProviderCard).self) { group -> [ProviderCard] in
-            for (i, p) in Config.load().providers.enumerated() {
+            for (i, p) in config.providers.enumerated() {
                 group.addTask { (i, await p.fetch()) }
             }
             var out: [(Int, ProviderCard)] = []
@@ -84,6 +85,20 @@ if args.contains("--probe") {
                 print(line)
             }
             for note in card.notes { print("    – \(note)") }
+        }
+
+        print("\n═══ 菜单栏 ═══")
+        var snapshot = Snapshot()
+        snapshot.cards = cards
+        if config.menuBar == .all {
+            print("  来源: all（每个源并排显示）")
+        } else if let headline = snapshot.headline(for: config.menuBar) {
+            print("  来源: \(config.menuBar.title) [\(config.menuBarSource)] → \(headline.label)")
+            print("  显示: \(headline.tag) \(headline.text)"
+                  + (headline.isStandIn
+                     ? "   ⚠︎ \(config.menuBar.title)不可用，这是临时代替" : ""))
+        } else {
+            print("  来源: \(config.menuBarSource) → 暂无可显示的额度")
         }
         print("")
         semaphore.signal()
@@ -120,6 +135,15 @@ if let dumpIndex = args.firstIndex(of: "--dump") {
         case "codex":
             let card = await CodexProvider().fetch()
             print(card.error ?? "ok: \(card.windows.count) 个窗口, notes=\(card.notes)")
+        case "claude":
+            do {
+                let json = try await ClaudeProvider().rawUsage()
+                let pretty = try JSONSerialization.data(withJSONObject: json,
+                                                        options: [.prettyPrinted, .sortedKeys])
+                print(String(data: pretty, encoding: .utf8) ?? "")
+            } catch {
+                print("✗ \(error.localizedDescription)")
+            }
         default:
             print("未知来源: \(which)")
         }
@@ -143,7 +167,7 @@ if args.contains("--snapshot") {
         // NSHostingView inside a real (offscreen) window draws the actual AppKit
         // controls. SwiftUI's ImageRenderer cannot: it skips ScrollView contents
         // and paints Buttons as placeholders.
-        let view = PopoverView(store: store, onQuit: {}, onOpenSettings: {})
+        let view = PopoverView(store: store, onQuit: {})
             .background(Color(nsColor: .windowBackgroundColor))
         let hosting = NSHostingView(rootView: view)
         hosting.frame = NSRect(origin: .zero, size: hosting.fittingSize)
@@ -185,7 +209,6 @@ if args.contains("--snapshot") {
 final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
     private var statusItem: NSStatusItem!
     private var popover: NSPopover!
-    private var settingsWindow: NSWindow?
     private var panelWindow: NSWindow?
     private let store = QuotaStore()
     private var cancellable: AnyCancellable?
@@ -199,20 +222,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         popover.behavior = .transient
         popover.delegate = self
         popover.contentViewController = NSHostingController(
-            rootView: PopoverView(store: store,
-                                  onQuit: { NSApp.terminate(nil) },
-                                  onOpenSettings: { [weak self] in self?.openSettings() })
+            rootView: PopoverView(store: store, onQuit: { NSApp.terminate(nil) })
         )
 
-        // First run with no workspace configured: open settings so the app is usable.
-        if store.config.opencodeWorkspaceID.isEmpty {
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { [weak self] in
-                self?.openSettings()
-            }
-        }
-
         // Redraw the menu bar whenever the snapshot changes — no polling timer.
-        cancellable = store.$snapshot
+        // Redraw on new data *and* on a settings change — picking a different
+        // menu bar source has to take effect without waiting for a refresh.
+        cancellable = Publishers.Merge(store.$snapshot.map { _ in () },
+                                       store.$config.map { _ in () })
             .receive(on: DispatchQueue.main)
             .sink { [weak self] _ in
                 MainActor.assumeIsolated { self?.updateStatusTitle() }
@@ -263,49 +280,141 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
 
     private func updateStatusTitle() {
         guard let button = statusItem.button else { return }
-        let symbolName: String
-        var tint: NSColor = .labelColor
-        var text = "—"
-
-        if let headline = store.headline {
-            // The needle tracks what is left, so a full gauge means plenty of quota.
-            text = "\(Int(headline.remaining))%"
-            switch headline.remaining {
-            case ..<10: symbolName = "gauge.with.dots.needle.33percent"; tint = .systemRed
-            case ..<25: symbolName = "gauge.with.dots.needle.33percent"; tint = .systemOrange
-            case ..<60: symbolName = "gauge.with.dots.needle.67percent"
-            default: symbolName = "gauge.with.dots.needle.100percent"
+        button.image = gaugeImage()
+        button.imagePosition = .imageLeading
+        button.attributedTitle = readout()
+        var tooltip: [String] = []
+        if store.config.menuBar != .all, let headline = store.headline {
+            var heading = "菜单栏显示：\(headline.label)"
+            if headline.isStandIn {
+                heading += "（\(store.config.menuBar.title)暂不可用，临时代替）"
             }
-        } else if store.hasError {
-            symbolName = "exclamationmark.triangle"
-            tint = .systemOrange
-            text = ""
-        } else {
-            symbolName = "gauge.with.dots.needle.33percent"
+            if let reset = Fmt.relative(headline.resetsAt) { heading += " · \(reset)" }
+            tooltip.append(heading)
+            tooltip.append("")
+        }
+        tooltip += store.snapshot.cards.map { card -> String in
+            if let error = card.error { return "\(card.name): \(error)" }
+            let parts = card.windows.map { w -> String in
+                if let remaining = w.remainingPercent {
+                    return "\(w.label) 剩余 \(Int(remaining))%"
+                }
+                return "\(w.label) \(w.value ?? "")"
+            }
+            return "\(card.name): " + parts.joined(separator: ", ")
+        }
+        button.toolTip = tooltip.joined(separator: "\n")
+    }
+
+    /// One figure per source, tagged, so the bar answers the question without
+    /// anything being opened. Deliberately not minimal: a status item is laid
+    /// out right-to-left from whatever sits beside it, so a longer readout
+    /// reaches further left — out from under the notch on a crowded bar.
+    private func readout() -> NSAttributedString {
+        store.config.menuBar == .all ? everySourceReadout() : singleSourceReadout()
+    }
+
+    /// One number, pinned by config — Codex's weekly quota unless changed. Also
+    /// keeps the status item narrow, which matters on a crowded menu bar.
+    private func singleSourceReadout() -> NSAttributedString {
+        let tagFont = NSFont.systemFont(ofSize: 9, weight: .semibold)
+        let valueFont = NSFont.monospacedDigitSystemFont(ofSize: 12, weight: .medium)
+
+        guard let headline = store.headline else {
+            let placeholder = store.hasError ? " !" : " …"
+            return NSAttributedString(string: placeholder, attributes: [
+                .font: valueFont,
+                .foregroundColor: store.hasError ? NSColor.systemOrange : .secondaryLabelColor,
+            ])
+        }
+        let line = NSMutableAttributedString()
+        line.append(NSAttributedString(string: " ", attributes: [.font: valueFont]))
+        line.append(NSAttributedString(string: headline.tag + " ", attributes: [
+            .font: tagFont,
+            .foregroundColor: NSColor.secondaryLabelColor,
+            .baselineOffset: 0.5,
+        ]))
+        line.append(NSAttributedString(string: headline.text, attributes: [
+            .font: valueFont,
+            .foregroundColor: headline.remaining.map(AppDelegate.tint) ?? .labelColor,
+        ]))
+        return line
+    }
+
+    private func everySourceReadout() -> NSAttributedString {
+        let tagFont = NSFont.systemFont(ofSize: 9, weight: .semibold)
+        let valueFont = NSFont.monospacedDigitSystemFont(ofSize: 12, weight: .medium)
+        let line = NSMutableAttributedString()
+
+        for card in store.snapshot.cards {
+            guard let segment = AppDelegate.segment(for: card) else { continue }
+            line.append(NSAttributedString(string: line.length == 0 ? " " : "  ",
+                                           attributes: [.font: valueFont]))
+            line.append(NSAttributedString(string: card.tag + " ", attributes: [
+                .font: tagFont,
+                .foregroundColor: NSColor.secondaryLabelColor,
+                .baselineOffset: 0.5,
+            ]))
+            line.append(NSAttributedString(string: segment.text, attributes: [
+                .font: valueFont,
+                .foregroundColor: segment.color,
+            ]))
         }
 
-        let config = NSImage.SymbolConfiguration(pointSize: 13, weight: .regular)
-        button.image = NSImage(systemSymbolName: symbolName, accessibilityDescription: "AI 配额")?
-            .withSymbolConfiguration(config)
-        button.imagePosition = text.isEmpty ? .imageOnly : .imageLeading
-        button.attributedTitle = NSAttributedString(
-            string: text.isEmpty ? "" : " \(text)",
-            attributes: [
-                .font: NSFont.monospacedDigitSystemFont(ofSize: 12, weight: .medium),
-                .foregroundColor: tint,
+        if line.length == 0 {
+            return NSAttributedString(string: " …", attributes: [
+                .font: valueFont, .foregroundColor: NSColor.secondaryLabelColor,
             ])
-        button.toolTip = store.snapshot.cards
-            .map { card -> String in
-                if let error = card.error { return "\(card.name): \(error)" }
-                let parts = card.windows.map { w -> String in
-                    if let remaining = w.remainingPercent {
-                        return "\(w.label) 剩余 \(Int(remaining))%"
-                    }
-                    return "\(w.label) \(w.value ?? "")"
-                }
-                return "\(card.name): " + parts.joined(separator: ", ")
+        }
+        return line
+    }
+
+    /// What to show for one source: the tightest window as a percentage, a bare
+    /// balance for the sources that report one instead, or a marker on failure.
+    private static func segment(for card: ProviderCard) -> (text: String, color: NSColor)? {
+        if card.error != nil { return ("!", .systemOrange) }
+        if let remaining = card.headlineWindow?.remainingPercent {
+            return ("\(Int(remaining))%", tint(for: remaining))
+        }
+        if var value = card.windows.compactMap(\.value).first {
+            // Cents never matter at a glance and cost four points of bar width.
+            if value.hasSuffix(".00") { value.removeLast(3) }
+            return (value, .labelColor)
+        }
+        return nil
+    }
+
+    private static func tint(for remaining: Double) -> NSColor {
+        switch remaining {
+        case ..<10: return .systemRed
+        case ..<25: return .systemOrange
+        default: return .systemGreen
+        }
+    }
+
+    /// The needle tracks what is left, so a full gauge means plenty of quota.
+    private func gaugeImage() -> NSImage? {
+        let name: String
+        var tint = NSColor.labelColor
+        // A balance has no ceiling, so there is no needle position to imply —
+        // show a neutral full gauge rather than a made-up level.
+        if let headline = store.headline, let remaining = headline.remaining {
+            switch remaining {
+            case ..<10: name = "gauge.with.dots.needle.33percent"; tint = .systemRed
+            case ..<25: name = "gauge.with.dots.needle.33percent"; tint = .systemOrange
+            case ..<60: name = "gauge.with.dots.needle.67percent"
+            default: name = "gauge.with.dots.needle.100percent"
             }
-            .joined(separator: "\n")
+        } else if store.hasError {
+            name = "exclamationmark.triangle"
+            tint = .systemOrange
+        } else {
+            name = "gauge.with.dots.needle.33percent"
+        }
+        let config = NSImage.SymbolConfiguration(pointSize: 13, weight: .regular)
+            .applying(.init(paletteColors: [tint]))
+        return NSImage(systemSymbolName: name, accessibilityDescription: "AI 配额")?
+            .withSymbolConfiguration(config)
     }
 
     @objc private func togglePopover() {
@@ -344,11 +453,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         let areas = [screen.auxiliaryTopLeftArea, screen.auxiliaryTopRightArea].compactMap { $0 }
         guard !areas.isEmpty else { return true }  // no notch on this display
 
-        // Require most of the button to sit inside one of the usable areas.
-        return areas.contains { area in
-            let overlap = area.intersection(window.frame)
-            return overlap.width >= window.frame.width * 0.9
-        }
+        // A multi-source readout is wide enough to straddle the notch. What
+        // matters is not the fraction in the clear but whether there is enough
+        // of it to aim at — one menu bar item's worth, ~24pt.
+        let needed = min(window.frame.width, 24)
+        return areas.contains { $0.intersection(window.frame).width >= needed }
     }
 
     private func showFallbackWindow() {
@@ -361,9 +470,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         // nothing — the popover gets its height from the anchor instead. Give the
         // windowed variant an explicit size and let the user resize from there.
         let hosting = NSHostingController(
-            rootView: PopoverView(store: store,
-                                  onQuit: { NSApp.terminate(nil) },
-                                  onOpenSettings: { [weak self] in self?.openSettings() })
+            rootView: PopoverView(store: store, onQuit: { NSApp.terminate(nil) })
                 .frame(width: 340, height: 520)
         )
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 340, height: 520),
@@ -375,23 +482,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         window.isReleasedWhenClosed = false
         window.center()
         panelWindow = window
-        window.makeKeyAndOrderFront(nil)
-        NSApp.activate(ignoringOtherApps: true)
-    }
-
-    private func openSettings() {
-        if let settingsWindow {
-            settingsWindow.makeKeyAndOrderFront(nil)
-            NSApp.activate(ignoringOtherApps: true)
-            return
-        }
-        let hosting = NSHostingController(rootView: SettingsView(store: store))
-        let window = NSWindow(contentViewController: hosting)
-        window.title = "\(AppInfo.name) 设置"
-        window.styleMask = [.titled, .closable]
-        window.isReleasedWhenClosed = false
-        window.center()
-        settingsWindow = window
         window.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
     }

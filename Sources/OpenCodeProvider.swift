@@ -10,13 +10,16 @@ struct OpenCodeProvider: QuotaProvider {
     let id = "opencode"
     let name = "OpenCode"
 
+    /// The weekly Go/Lite window — selectable as the menu bar readout.
+    static let weeklyKey = "opencode.weekly"
+
     let workspaceID: String
 
     var goURL: URL { URL(string: "https://opencode.ai/workspace/\(workspaceID)/go")! }
     var billingURL: URL { URL(string: "https://opencode.ai/workspace/\(workspaceID)/billing")! }
 
     func fetch() async -> ProviderCard {
-        var card = ProviderCard(id: id, name: name, link: goURL)
+        var card = ProviderCard(id: id, name: name, shortName: "OC", link: goURL)
         do {
             let cookie = try ChromeCookies.header(matching: "%opencode.ai")
             let html = try await page(goURL, cookie: cookie)
@@ -80,10 +83,10 @@ struct OpenCodeProvider: QuotaProvider {
     // MARK: - Parse
 
     private func applyGo(_ html: String, to card: inout ProviderCard) throws {
-        let slots: [(key: String, label: String)] = [
-            ("rollingUsage", "滚动窗口"),
-            ("weeklyUsage", "每周"),
-            ("monthlyUsage", "每月"),
+        let slots: [(key: String, label: String, tag: String?)] = [
+            ("rollingUsage", "滚动窗口", nil),
+            ("weeklyUsage", "每周", OpenCodeProvider.weeklyKey),
+            ("monthlyUsage", "每月", nil),
         ]
         var found = 0
         for slot in slots {
@@ -98,6 +101,7 @@ struct OpenCodeProvider: QuotaProvider {
                 label += status == "limited" ? "（已限流）" : "（\(status)）"
             }
             card.windows.append(QuotaWindow(label: label,
+                                            key: slot.tag,
                                             usedPercent: block.usagePercent.map(Double.init),
                                             resetsAt: resets))
         }

@@ -8,6 +8,9 @@ struct DeepSeekProvider: QuotaProvider {
     let id = "deepseek"
     let name = "DeepSeek"
 
+    /// The funded balance row — selectable as the menu bar readout.
+    static let balanceKey = "deepseek.balance"
+
     let keychainService: String
     let keychainAccount: String
 
@@ -17,7 +20,7 @@ struct DeepSeekProvider: QuotaProvider {
     }
 
     func fetch() async -> ProviderCard {
-        var card = ProviderCard(id: id, name: name,
+        var card = ProviderCard(id: id, name: name, shortName: "DS",
                                 link: URL(string: "https://platform.deepseek.com/usage"))
         do {
             let key = try apiKey()
@@ -35,26 +38,8 @@ struct DeepSeekProvider: QuotaProvider {
         if let env = ProcessInfo.processInfo.environment["DEEPSEEK_API_KEY"], !env.isEmpty {
             return env
         }
-        let query: [String: Any] = [
-            kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: keychainService,
-            kSecAttrAccount as String: keychainAccount,
-            kSecReturnData as String: true,
-            kSecMatchLimit as String: kSecMatchLimitOne,
-        ]
-        var item: CFTypeRef?
-        if SecItemCopyMatching(query as CFDictionary, &item) == errSecSuccess,
-           let data = item as? Data,
-           let key = String(data: data, encoding: .utf8)?
-               .trimmingCharacters(in: .whitespacesAndNewlines),
+        if let key = Keychain.string(service: keychainService, account: keychainAccount),
            !key.isEmpty {
-            return key
-        }
-        if let key = try? Shell.run("/usr/bin/security",
-                                    ["find-generic-password", "-w",
-                                     "-s", keychainService, "-a", keychainAccount],
-                                    timeout: 30)
-            .trimmingCharacters(in: .whitespacesAndNewlines), !key.isEmpty {
             return key
         }
         throw QuotaError.message("钥匙串里没有 \"\(keychainService)\"（账户 \(keychainAccount)）。也可以设置环境变量 DEEPSEEK_API_KEY。")
@@ -103,7 +88,11 @@ struct DeepSeekProvider: QuotaProvider {
             let granted = info["granted_balance"] as? String ?? "0"
             let toppedUp = info["topped_up_balance"] as? String ?? "0"
 
+            // Only the first row carries the key; with several funded
+            // currencies the menu bar shows the primary one.
             card.windows.append(QuotaWindow(label: "余额（\(currency)）",
+                                            key: card.windows.isEmpty
+                                                ? DeepSeekProvider.balanceKey : nil,
                                             usedPercent: nil,
                                             resetsAt: nil,
                                             value: "\(symbol)\(total)"))
