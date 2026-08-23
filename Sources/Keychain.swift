@@ -58,7 +58,7 @@ enum Keychain {
             status = SecItemAdd(item as CFDictionary, nil)
         }
         guard status == errSecSuccess else {
-            throw QuotaError.message("无法写入钥匙串「\(service)」（状态 \(status)）")
+            throw QuotaError.message(L("keychain.write_failed", service, Int(status)))
         }
     }
 
@@ -66,14 +66,13 @@ enum Keychain {
     static func explain(_ status: OSStatus, item: String) -> String {
         switch status {
         case errSecItemNotFound:
-            return "钥匙串里没有「\(item)」"
+            return L("keychain.not_found", item)
         case errSecUserCanceled:
-            return "钥匙串授权被取消（状态 -128）。命令行里弹不出授权框，"
-                + "请从访达或聚焦启动 AI Quota，在弹窗里点\"始终允许\"。"
+            return L("keychain.user_canceled")
         case errSecInteractionNotAllowed:
-            return "钥匙串当前不允许交互（状态 \(status)），请解锁登录钥匙串后重试。"
+            return L("keychain.no_interaction", Int(status))
         default:
-            return "读不到钥匙串条目「\(item)」（状态 \(status)）"
+            return L("keychain.read_failed", item, Int(status))
         }
     }
 }

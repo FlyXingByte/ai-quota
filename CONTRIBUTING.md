@@ -20,12 +20,16 @@ cd ai-quota
 ## Before opening a pull request
 
 ```bash
-bash -n build.sh install.sh scripts/create-release.sh scripts/verify-release.sh
+bash -n build.sh install.sh make-signing-cert.sh scripts/*.sh
 git diff --check
+./scripts/check-localization.sh
+swiftc -typecheck -target arm64-apple-macosx14.0 -strict-concurrency=complete Sources/*.swift
 ./build.sh
 "build/AI Quota.app/Contents/MacOS/AIQuota" --self-test
 codesign --verify --deep --strict "build/AI Quota.app"
 ```
+
+The same steps run in CI (`.github/workflows/ci.yml`).
 
 For release-related changes, also run:
 
@@ -33,6 +37,17 @@ For release-related changes, also run:
 ./scripts/create-release.sh <version>
 ./scripts/verify-release.sh <version>
 ```
+
+## Interface text
+
+Every user-facing string goes through `L("some.key")` and must be defined in both
+`Resources/en.lproj/Localizable.strings` and `Resources/zh-Hans.lproj/Localizable.strings`.
+`scripts/check-localization.sh` fails the build on a key that is missing from a
+table or on a table entry nothing references, and `--self-test` checks that the
+two tables define the same keys in the built bundle.
+
+Diagnostic output — `--probe`, `--dump`, `last-refresh.log`, `last-launch.log` —
+stays English-only on purpose: it is what gets pasted into an issue.
 
 ## Credential and privacy rules
 

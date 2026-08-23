@@ -1,0 +1,43 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: Build and self-check
+    runs-on: macos-14
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Toolchain
+        run: swift --version
+
+      - name: Localization tables
+        run: ./scripts/check-localization.sh
+
+      # Kept separate from the build so a data race that only strict checking
+      # catches cannot ride in unnoticed.
+      - name: Typecheck (strict concurrency)
+        run: |
+          swiftc -typecheck -target arm64-apple-macosx14.0 \
+            -strict-concurrency=complete Sources/*.swift 2>&1 | tee typecheck.log
+          if grep -q 'warning:' typecheck.log; then
+            echo "::error::strict concurrency warnings"
+            exit 1
+          fi
+
+      # No signing identity on the runner: build.sh falls back to ad-hoc, which
+      # is fine here — nothing is installed, and the self-check still runs.
+      - name: Build and self-test
+        run: ./build.sh
+
+      - name: Strings resolve in both languages
+        run: |
+          BIN="build/AI Quota.app/Contents/MacOS/AIQuota"
+          "$BIN" -AppleLanguages '(en)' --help | grep -q 'menu bar app'
+          "$BIN" -AppleLanguages '(zh-Hans)' --help | grep -q '菜单栏 App'

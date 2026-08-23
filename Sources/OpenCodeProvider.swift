@@ -45,6 +45,7 @@ struct OpenCodeProvider: QuotaProvider {
                      forHTTPHeaderField: "User-Agent")
         req.setValue("text/html,application/xhtml+xml", forHTTPHeaderField: "Accept")
         req.timeoutInterval = 25
+        req.cachePolicy = .reloadIgnoringLocalCacheData
 
         let config = URLSessionConfiguration.ephemeral
         config.httpShouldSetCookies = false
@@ -54,14 +55,14 @@ struct OpenCodeProvider: QuotaProvider {
 
         let (data, response) = try await session.data(for: req)
         guard let http = response as? HTTPURLResponse else {
-            throw QuotaError.message("opencode: 无响应")
+            throw QuotaError.message(L("opencode.no_response"))
         }
         if (300..<400).contains(http.statusCode) {
             let dest = http.value(forHTTPHeaderField: "Location") ?? ""
             if dest.contains("/auth") {
-                throw QuotaError.message("opencode 会话已过期，请在 Chrome 里重新登录 opencode.ai")
+                throw QuotaError.message(L("opencode.session_expired"))
             }
-            throw QuotaError.message("opencode: 意外跳转到 \(dest)")
+            throw QuotaError.message(L("opencode.unexpected_redirect", dest))
         }
         guard http.statusCode == 200 else {
             throw QuotaError.message("opencode: HTTP \(http.statusCode)")
@@ -83,10 +84,11 @@ struct OpenCodeProvider: QuotaProvider {
     // MARK: - Parse
 
     private func applyGo(_ html: String, to card: inout ProviderCard) throws {
+        // `label` is a localization key, resolved as each row is built.
         let slots: [(key: String, label: String, tag: String?)] = [
-            ("rollingUsage", "滚动窗口", nil),
-            ("weeklyUsage", "每周", OpenCodeProvider.weeklyKey),
-            ("monthlyUsage", "每月", nil),
+            ("rollingUsage", "window.rolling", nil),
+            ("weeklyUsage", "window.weekly", OpenCodeProvider.weeklyKey),
+            ("monthlyUsage", "window.monthly", nil),
         ]
         var found = 0
         for slot in slots {
@@ -96,9 +98,9 @@ struct OpenCodeProvider: QuotaProvider {
             if let secs = block.resetInSec, secs > 0 {
                 resets = Date().addingTimeInterval(TimeInterval(secs))
             }
-            var label = slot.label
+            var label = L(slot.label)
             if let status = block.status, status != "ok" {
-                label += status == "limited" ? "（已限流）" : "（\(status)）"
+                label += status == "limited" ? L("opencode.rate_limited") : L("opencode.status_suffix", status)
             }
             card.windows.append(QuotaWindow(label: label,
                                             key: slot.tag,
@@ -108,9 +110,9 @@ struct OpenCodeProvider: QuotaProvider {
 
         if found == 0 {
             if html.contains("workspace.lite.loading") || html.contains("data-page=\"workspace-[id]\"") {
-                throw QuotaError.message("opencode: 该工作区没有 Go/Lite 订阅额度数据")
+                throw QuotaError.message(L("opencode.no_subscription"))
             }
-            throw QuotaError.message("opencode: 页面结构变了，解析不到额度（可用 --dump 排查）")
+            throw QuotaError.message(L("opencode.parse_failed"))
         }
         if card.subtitle == nil { card.subtitle = "opencode Go" }
     }
@@ -118,13 +120,13 @@ struct OpenCodeProvider: QuotaProvider {
     private func applyBilling(_ html: String, to card: inout ProviderCard) {
         // Console money values are micro-cents integers.
         if let raw = Payload.number(forKey: "balance", in: html) {
-            card.windows.append(QuotaWindow(label: "Zen 余额",
+            card.windows.append(QuotaWindow(label: L("opencode.zen_balance"),
                                             usedPercent: nil,
                                             resetsAt: nil,
                                             value: Fmt.microCents(Double(raw))))
         }
         if let limit = Payload.number(forKey: "monthlyLimit", in: html), limit > 0 {
-            card.notes.append("月度上限：\(Fmt.microCents(Double(limit)))")
+            card.notes.append(ProviderNote(text: L("opencode.monthly_limit", Fmt.microCents(Double(limit)))))
         }
     }
 }

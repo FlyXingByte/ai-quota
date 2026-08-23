@@ -32,26 +32,25 @@ struct SetupView: View {
                 permissionNotice
 
                 SourceToggleRow(tag: "Cx", title: "Codex",
-                                detail: "安装并登录 codex CLI 后即可读取",
+                                detail: L("setup.codex_detail"),
                                 isOn: $showCodex)
                 SourceToggleRow(tag: "Cl", title: "Claude",
-                                detail: "登录 Claude Code 后即可读取",
+                                detail: L("setup.claude_detail"),
                                 isOn: $showClaude)
 
                 sourceCard(tag: "OC", title: "OpenCode", isOn: $showOpenCode) {
-                    TextField("wrk_… 或完整工作区 URL", text: $workspaceInput)
+                    TextField(L("setup.workspace_placeholder"), text: $workspaceInput)
                         .textFieldStyle(.roundedBorder)
-                    Text("可直接粘贴 opencode.ai/workspace/<ID>/go，App 会自动提取 ID。")
+                    Text(L("setup.workspace_hint"))
                         .font(.system(size: 10))
                         .foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
                 }
 
                 sourceCard(tag: "DS", title: "DeepSeek", isOn: $showDeepSeek) {
-                    SecureField("输入 API Key；留空则继续使用现有钥匙串条目",
-                                text: $deepSeekKey)
+                    SecureField(L("setup.deepseek_placeholder"), text: $deepSeekKey)
                         .textFieldStyle(.roundedBorder)
-                    Text("Key 只写入 macOS 钥匙串，不会保存到 config.json。")
+                    Text(L("setup.deepseek_hint"))
                         .font(.system(size: 10))
                         .foregroundStyle(.secondary)
                 }
@@ -67,7 +66,7 @@ struct SetupView: View {
 
                 HStack {
                     Spacer()
-                    Button(store.config.setupCompleted ? "保存设置" : "保存并开始读取") {
+                    Button(L(store.config.setupCompleted ? "setup.save" : "setup.save_and_start")) {
                         save()
                     }
                     .buttonStyle(.borderedProminent)
@@ -91,11 +90,10 @@ struct SetupView: View {
             .frame(width: 30, height: 30)
 
             VStack(alignment: .leading, spacing: 3) {
-                Text(store.config.setupCompleted ? "数据源设置" : "欢迎使用 AI Quota")
+                Text(L(store.config.setupCompleted ? "setup.title_settings" : "setup.title_welcome"))
                     .font(.system(size: 14, weight: .semibold))
-                Text(store.config.setupCompleted
-                     ? "启用需要的来源，关闭不使用的来源。"
-                     : "先完成一次简单设置，再开始读取额度。")
+                Text(L(store.config.setupCompleted
+                       ? "setup.subtitle_settings" : "setup.subtitle_welcome"))
                     .font(.system(size: 10))
                     .foregroundStyle(.secondary)
             }
@@ -104,10 +102,10 @@ struct SetupView: View {
 
     private var permissionNotice: some View {
         VStack(alignment: .leading, spacing: 5) {
-            Label("首次授权提示", systemImage: "key.fill")
+            Label(L("setup.permission_title"), systemImage: "key.fill")
                 .font(.system(size: 11, weight: .semibold))
                 .foregroundStyle(QuotaTheme.brand)
-            Text("点击开始后，已启用来源最多会请求 Chrome Safe Storage、Claude Code-credentials 和 DeepSeek 钥匙串访问。请核对名称后选择允许。")
+            Text(L("setup.permission_detail"))
                 .font(.system(size: 10))
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -122,7 +120,7 @@ struct SetupView: View {
                                            @ViewBuilder content: () -> Content) -> some View {
         VStack(alignment: .leading, spacing: 8) {
             SourceToggleRow(tag: tag, title: title,
-                            detail: isOn.wrappedValue ? "已启用" : "可选",
+                            detail: L(isOn.wrappedValue ? "setup.enabled" : "setup.optional"),
                             isOn: isOn)
             if isOn.wrappedValue {
                 content()
@@ -142,7 +140,7 @@ struct SetupView: View {
         let workspaceID = Self.workspaceID(from: workspaceInput)
         if showOpenCode && !workspaceID.hasPrefix("wrk_") {
             feedback = FeedbackMessage(
-                text: "OpenCode 需要 wrk_ 开头的 ID，或包含 /workspace/<ID>/ 的完整 URL。",
+                text: L("setup.workspace_invalid"),
                 tone: .error)
             return
         }
@@ -155,7 +153,7 @@ struct SetupView: View {
                                  showDeepSeek: showDeepSeek,
                                  deepSeekKey: deepSeekKey)
             deepSeekKey = ""
-            feedback = FeedbackMessage(text: "设置已保存，开始读取额度。", tone: .success)
+            feedback = FeedbackMessage(text: L("setup.saved"), tone: .success)
             onDone()
         } catch {
             feedback = FeedbackMessage(text: error.localizedDescription, tone: .error)

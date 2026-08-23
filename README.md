@@ -9,11 +9,15 @@
 </p>
 
 <p align="center">
-  <img alt="Source 1.3.3" src="https://img.shields.io/badge/source-1.3.3-1769E8?style=flat-square">
+  <img alt="Source 1.4.0" src="https://img.shields.io/badge/source-1.4.0-1769E8?style=flat-square">
   <img alt="Beta release" src="https://img.shields.io/badge/beta-1.3.0_beta_1-4A8BFF?style=flat-square">
   <img alt="macOS 14+" src="https://img.shields.io/badge/macOS-14%2B-111111?style=flat-square&logo=apple&logoColor=white">
   <img alt="Apple Silicon" src="https://img.shields.io/badge/Apple_Silicon-arm64-4A8BFF?style=flat-square">
   <img alt="MIT" src="https://img.shields.io/badge/license-MIT-3DA639?style=flat-square">
+</p>
+
+<p align="center">
+  <a href="README.en.md">English</a> · <strong>简体中文</strong>
 </p>
 
 <p align="center">
@@ -24,8 +28,8 @@
   <a href="#隐私边界">隐私边界</a>
 </p>
 
-> **Current source · 1.3.3 Stacked Compact Widget**<br>
-> 状态栏在同一格中上方显示 `AI`、下方显示额度；预编译下载暂为 1.3.0 Beta 1。
+> **Current source · 1.4.0 Bilingual and Resilient**<br>
+> 界面随系统语言在简体中文与英文间切换；读取失败保留上次读数并自动重试；预编译下载暂为 1.3.0 Beta 1。
 
 <table>
   <tr>
@@ -55,6 +59,10 @@
 </p>
 
 <p align="center"><sub>首次运行先解释权限，再由用户选择数据源。</sub></p>
+
+## 界面语言
+
+界面跟随系统语言：App 内置**简体中文**与**English**，其他语言回落到英文，无需任何设置。
 
 ## 安装
 
@@ -123,6 +131,8 @@ https://opencode.ai/workspace/wrk_xxxxx/go
 
 状态栏固定采用两行单指标样式，例如上方 `AI`、下方 `56%`，不再提供会占用多个位置的“全部并排”模式。
 
+这个菜单只列出真正启用的来源；如果在设置里关掉了菜单栏当前指向的来源，它会自动改选一个仍在报数的来源。
+
 ## 后续修改设置
 
 使用 **「⋯ → 数据源设置…」** 即可重新选择来源、更新 OpenCode URL 或覆盖 DeepSeek Key。
@@ -134,6 +144,11 @@ https://opencode.ai/workspace/wrk_xxxxx/go
 ```
 
 文件权限会被保存为 `0600`。DeepSeek Key 从不写入该文件。
+
+## 读取失败时
+
+某个来源读取失败时不会清空卡片：错误显示在上一次成功读到的数字**旁边**，并标注这是沿用的读数，
+菜单栏把该数字降为次要色而不是掉回 `!`。失败后 60 秒、180 秒各补一次重试；睡眠唤醒和网络恢复时也会主动刷新。
 
 ## 隐私边界
 
@@ -162,11 +177,17 @@ https://opencode.ai/workspace/wrk_xxxxx/go
 ```bash
 gh repo clone FlyXingByte/ai-quota
 cd ai-quota
+./make-signing-cert.sh   # 只需一次：生成本地签名身份
 ./install.sh
 ```
 
-构建需要 Apple Silicon Mac、macOS 14+ 和 Command Line Tools。若钥匙串中没有 macOS 认可的有效签名身份，
-构建会安全回退到严格可验证的 ad-hoc，而不会使用未受信任的自签名证书。
+构建需要 Apple Silicon Mac、macOS 14+ 和 Command Line Tools。
+
+`make-signing-cert.sh` 会在登录钥匙串里生成一张自签名证书，它比看上去重要：macOS 把 TCC 和钥匙串授权
+记在 App 的**指定要求**上，而 ad-hoc 签名没有身份，指定要求会退化成每次重编译都变的 cdhash——
+于是每装一次就把之前授过的权限悄悄作废。有了这张证书，指定要求变成
+`identifier "com.flyx.aiquota" and certificate root = H"…"`，跨构建稳定。证书**不需要**装成受信任根，
+codesign 并不要求链信任。没有它时构建会回退到 ad-hoc，并明确提示这一点。
 
 ## 生成 Release 资产
 
@@ -187,6 +208,17 @@ cd ai-quota
 "/Applications/AI Quota.app/Contents/MacOS/AIQuota" --self-test
 "/Applications/AI Quota.app/Contents/MacOS/AIQuota" --snapshot-setup
 ```
+
+</details>
+
+<details>
+<summary><strong>新增或修改界面文案</strong></summary>
+
+所有面向用户的文案都经过 `L("some.key")`，并且必须同时定义在
+`Resources/en.lproj/Localizable.strings` 和 `Resources/zh-Hans.lproj/Localizable.strings` 里。
+`scripts/check-localization.sh`（`build.sh` 和 CI 都会跑）会在键缺失、或者表里有代码不再使用的键时让构建失败。
+
+诊断输出（`--probe`、`--dump`、`last-refresh.log`、`last-launch.log`）刻意只用英文：它们是贴进 issue 的东西。
 
 </details>
 
