@@ -363,7 +363,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
                                        store.$config.map { _ in () })
             .receive(on: DispatchQueue.main)
             .sink { [weak self] _ in
-                MainActor.assumeIsolated { self?.updateStatusTitle() }
+                guard let delegate = self else { return }
+                MainActor.assumeIsolated { delegate.updateStatusTitle() }
             }
 
         if store.config.setupCompleted {
@@ -371,7 +372,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         } else {
             // Show onboarding before any provider can trigger a keychain prompt.
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) { [weak self] in
-                MainActor.assumeIsolated { self?.showPanel() }
+                guard let delegate = self else { return }
+                MainActor.assumeIsolated { delegate.showPanel() }
             }
         }
         updateStatusTitle()
@@ -383,8 +385,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
     /// "I can't see the readout" can be diagnosed without a screenshot.
     private func logStatusItemPlacement() {
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { [weak self] in
+            guard let self else { return }
             MainActor.assumeIsolated {
-                guard let self else { return }
                 var lines = ["[\(Date())] launch"]
                 lines.append("statusItem.isVisible = \(self.statusItem.isVisible)")
                 lines.append("top line = \(self.statusTopLabel.stringValue)")

@@ -34,10 +34,14 @@ final class QuotaStore: ObservableObject {
         timer?.invalidate()
         let interval = TimeInterval(max(1, config.refreshMinutes) * 60)
         let timer = Timer.scheduledTimer(withTimeInterval: interval, repeats: true) { [weak self] _ in
+            // Resolved before the Task, not inside it: a weak capture read from
+            // within a concurrently-executing closure is rejected outright by
+            // the Swift 5.x toolchains this project still builds on.
+            guard let store = self else { return }
             Task { @MainActor in
                 // Each scheduled round starts with a full retry budget.
-                self?.retryAttempt = 0
-                await self?.refresh()
+                store.retryAttempt = 0
+                await store.refresh()
             }
         }
         // A quota readout is not worth waking the CPU on the dot; letting the
@@ -53,19 +57,20 @@ final class QuotaStore: ObservableObject {
         wakeObserver = NSWorkspace.shared.notificationCenter.addObserver(
             forName: NSWorkspace.didWakeNotification, object: nil, queue: .main
         ) { [weak self] _ in
-            MainActor.assumeIsolated { self?.refreshIfOlderThan(120) }
+            guard let store = self else { return }
+            MainActor.assumeIsolated { store.refreshIfOlderThan(120) }
         }
 
         let monitor = NWPathMonitor()
         monitor.pathUpdateHandler = { [weak self] path in
+            let satisfied = path.status == .satisfied
+            guard let store = self else { return }
             Task { @MainActor in
-                guard let self else { return }
-                let satisfied = path.status == .satisfied
-                defer { self.wasOffline = !satisfied }
+                defer { store.wasOffline = !satisfied }
                 // Only on the transition back: the handler also fires for
                 // interface changes that were never an outage.
-                guard satisfied, self.wasOffline else { return }
-                self.refreshIfOlderThan(30)
+                guard satisfied, store.wasOffline else { return }
+                store.refreshIfOlderThan(30)
             }
         }
         monitor.start(queue: DispatchQueue(label: "\(AppInfo.bundleID).network"))
@@ -162,9 +167,9 @@ final class QuotaStore: ObservableObject {
         retryAttempt += 1
         retryTask = Task { [weak self] in
             try? await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
-            guard !Task.isCancelled else { return }
-            await MainActor.run { self?.retryTask = nil }
-            await self?.refresh()
+            guard !Task.isCancelled, let store = self else { return }
+            await MainActor.run { store.retryTask = nil }
+            await store.refresh()
         }
     }
 
