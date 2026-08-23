@@ -1,0 +1,21 @@
+.DS_Store
+build/
+
+# Local configuration and environment
+.env
+.env.*
+config.json
+last-launch.log
+
+# Credentials and signing material
+*.key
+*.pem
+*.p12
+*.cer
+*.mobileprovision
+
+# Swift/Xcode local state
+.build/
+DerivedData/
+*.xcuserstate
+xcuserdata/

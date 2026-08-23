@@ -1,0 +1,405 @@
+import AppKit
+import Combine
+import ServiceManagement
+import SwiftUI
+
+// MARK: - Headless modes (used for verification and troubleshooting)
+
+let args = CommandLine.arguments
+
+if args.contains("--help") || args.contains("-h") {
+    print("""
+    \(AppInfo.name) \(AppInfo.version)
+
+      --probe            读取全部配额并打印为文本，然后退出
+      --dump <来源>      抓取原始响应存盘（opencode | billing | codex）
+      --snapshot         把面板离屏渲染成 ~/Desktop/ai-quota-preview.png
+      --config           打印配置文件路径和当前内容
+      --identity         打印 App 身份、图标和登录项状态
+    不带参数时以菜单栏 App 运行。
+    """)
+    exit(0)
+}
+
+if args.contains("--identity") {
+    let bundle = Bundle.main
+    let name = bundle.object(forInfoDictionaryKey: "CFBundleDisplayName") as? String ?? "(missing)"
+    let identifier = bundle.bundleIdentifier ?? "(missing)"
+    let version = bundle.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "(missing)"
+    let iconName = bundle.object(forInfoDictionaryKey: "CFBundleIconFile") as? String ?? "(missing)"
+    let iconURL = bundle.resourceURL?.appendingPathComponent(iconName)
+    let loginStatus: String
+    switch SMAppService.mainApp.status {
+    case .notRegistered: loginStatus = "notRegistered"
+    case .enabled: loginStatus = "enabled"
+    case .requiresApproval: loginStatus = "requiresApproval"
+    case .notFound: loginStatus = "notFound"
+    @unknown default: loginStatus = "unknown"
+    }
+    print("name=\(name)")
+    print("bundle_id=\(identifier)")
+    print("version=\(version)")
+    print("bundle_path=\(bundle.bundlePath)")
+    print("executable=\(bundle.executablePath ?? "(missing)")")
+    print("icon=\(iconURL?.path ?? "(missing)")")
+    print("icon_exists=\(iconURL.map { FileManager.default.fileExists(atPath: $0.path) } ?? false)")
+    print("login_item=\(loginStatus)")
+    exit(0)
+}
+
+if args.contains("--config") {
+    let cfg = Config.load()
+    print("配置文件: \(Config.fileURL.path)")
+    let encoder = JSONEncoder()
+    encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+    print(String(data: (try? encoder.encode(cfg)) ?? Data(), encoding: .utf8) ?? "")
+    exit(0)
+}
+
+if args.contains("--probe") {
+    let semaphore = DispatchSemaphore(value: 0)
+    Task {
+        let cards = await withTaskGroup(of: (Int, ProviderCard).self) { group -> [ProviderCard] in
+            for (i, p) in Config.load().providers.enumerated() {
+                group.addTask { (i, await p.fetch()) }
+            }
+            var out: [(Int, ProviderCard)] = []
+            for await r in group { out.append(r) }
+            return out.sorted { $0.0 < $1.0 }.map(\.1)
+        }
+        for card in cards {
+            print("\n═══ \(card.name)\(card.subtitle.map { "  [\($0)]" } ?? "") ═══")
+            if let error = card.error { print("  ✗ \(error)") }
+            for w in card.windows {
+                var line = "  • \(w.label): "
+                if let remaining = w.remainingPercent {
+                    let filled = Int((remaining / 100 * 20).rounded())
+                    line += String(repeating: "█", count: filled)
+                        + String(repeating: "░", count: 20 - filled)
+                        + String(format: " 剩余 %3d%%", Int(remaining))
+                } else if let value = w.value {
+                    line += value
+                }
+                if let reset = Fmt.relative(w.resetsAt) { line += "  (\(reset))" }
+                print(line)
+            }
+            for note in card.notes { print("    – \(note)") }
+        }
+        print("")
+        semaphore.signal()
+    }
+    semaphore.wait()
+    exit(0)
+}
+
+if let dumpIndex = args.firstIndex(of: "--dump") {
+    let which = dumpIndex + 1 < args.count ? args[dumpIndex + 1] : "opencode"
+    let semaphore = DispatchSemaphore(value: 0)
+    Task {
+        switch which {
+        case "opencode", "billing":
+            let cfg = Config.load()
+            do {
+                let cookie = try ChromeCookies.header(matching: "%opencode.ai")
+                print("cookie 条数: \(cookie.split(separator: ";").count)")
+                let page = which == "billing" ? "billing" : "go"
+                let url = URL(string: "https://opencode.ai/workspace/\(cfg.opencodeWorkspaceID)/\(page)")!
+                var req = URLRequest(url: url)
+                req.setValue(cookie, forHTTPHeaderField: "Cookie")
+                req.setValue("Mozilla/5.0 (Macintosh) Chrome/140.0.0.0", forHTTPHeaderField: "User-Agent")
+                let (data, resp) = try await URLSession.shared.data(for: req)
+                let http = resp as? HTTPURLResponse
+                print("HTTP \(http?.statusCode ?? -1), \(data.count) bytes")
+                let path = FileManager.default.temporaryDirectory
+                    .appendingPathComponent("aiquota-opencode-\(page).html")
+                try data.write(to: path)
+                print("已写入 \(path.path)")
+            } catch {
+                print("✗ \(error.localizedDescription)")
+            }
+        case "codex":
+            let card = await CodexProvider().fetch()
+            print(card.error ?? "ok: \(card.windows.count) 个窗口, notes=\(card.notes)")
+        default:
+            print("未知来源: \(which)")
+        }
+        semaphore.signal()
+    }
+    semaphore.wait()
+    exit(0)
+}
+
+if args.contains("--snapshot") {
+    // Renders the popover offscreen so the UI can be checked without a screen
+    // recording permission.
+    let out = FileManager.default.homeDirectoryForCurrentUser
+        .appendingPathComponent("Desktop/ai-quota-preview.png")
+    _ = NSApplication.shared  // AppKit drawing needs an initialized app
+    final class Flag: @unchecked Sendable { var done = false }
+    let flag = Flag()
+    Task { @MainActor in
+        let store = QuotaStore()
+        await store.refresh()
+        // NSHostingView inside a real (offscreen) window draws the actual AppKit
+        // controls. SwiftUI's ImageRenderer cannot: it skips ScrollView contents
+        // and paints Buttons as placeholders.
+        let view = PopoverView(store: store, onQuit: {}, onOpenSettings: {})
+            .background(Color(nsColor: .windowBackgroundColor))
+        let hosting = NSHostingView(rootView: view)
+        hosting.frame = NSRect(origin: .zero, size: hosting.fittingSize)
+
+        let window = NSWindow(contentRect: hosting.frame,
+                              styleMask: [.borderless], backing: .buffered, defer: false)
+        window.contentView = hosting
+        window.setFrameOrigin(NSPoint(x: -10000, y: -10000))  // offscreen, still rendered
+        window.orderFront(nil)
+        hosting.layoutSubtreeIfNeeded()
+        // Yield so the outer run-loop pump can flush a display cycle before capture.
+        try? await Task.sleep(nanoseconds: 400_000_000)
+
+        if let rep = hosting.bitmapImageRepForCachingDisplay(in: hosting.bounds) {
+            hosting.cacheDisplay(in: hosting.bounds, to: rep)
+            if let png = rep.representation(using: .png, properties: [:]) {
+                try? png.write(to: out)
+                print("已渲染 \(Int(hosting.bounds.width))x\(Int(hosting.bounds.height)) -> \(out.path)")
+            } else {
+                print("✗ PNG 编码失败")
+            }
+        } else {
+            print("✗ 渲染失败")
+        }
+        window.orderOut(nil)
+        flag.done = true
+    }
+    // Pump the main run loop so the @MainActor task above can actually run —
+    // blocking on a semaphore here would deadlock it.
+    while !flag.done {
+        RunLoop.main.run(mode: .default, before: Date().addingTimeInterval(0.05))
+    }
+    exit(0)
+}
+
+// MARK: - Menu bar app
+
+@MainActor
+final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
+    private var statusItem: NSStatusItem!
+    private var popover: NSPopover!
+    private var settingsWindow: NSWindow?
+    private var panelWindow: NSWindow?
+    private let store = QuotaStore()
+    private var cancellable: AnyCancellable?
+
+    func applicationDidFinishLaunching(_ notification: Notification) {
+        statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
+        statusItem.button?.action = #selector(togglePopover)
+        statusItem.button?.target = self
+
+        popover = NSPopover()
+        popover.behavior = .transient
+        popover.delegate = self
+        popover.contentViewController = NSHostingController(
+            rootView: PopoverView(store: store,
+                                  onQuit: { NSApp.terminate(nil) },
+                                  onOpenSettings: { [weak self] in self?.openSettings() })
+        )
+
+        // First run with no workspace configured: open settings so the app is usable.
+        if store.config.opencodeWorkspaceID.isEmpty {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { [weak self] in
+                self?.openSettings()
+            }
+        }
+
+        // Redraw the menu bar whenever the snapshot changes — no polling timer.
+        cancellable = store.$snapshot
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in
+                MainActor.assumeIsolated { self?.updateStatusTitle() }
+            }
+
+        store.start()
+        updateStatusTitle()
+        logStatusItemPlacement()
+    }
+
+    /// macOS silently drops menu bar items that do not fit — common on notched
+    /// displays with a crowded bar. Record where the button actually landed so
+    /// "I can't see the icon" can be diagnosed without a screenshot.
+    private func logStatusItemPlacement() {
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { [weak self] in
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                var lines = ["[\(Date())] 启动"]
+                lines.append("statusItem.isVisible = \(self.statusItem.isVisible)")
+                if let window = self.statusItem.button?.window {
+                    lines.append("按钮窗口 frame = \(NSStringFromRect(window.frame))")
+                    if let screen = window.screen {
+                        lines.append("所在屏幕 = \(NSStringFromRect(screen.frame))")
+                        lines.append("刘海左侧可用区 = \(screen.auxiliaryTopLeftArea.map(NSStringFromRect) ?? "无刘海")")
+                        lines.append("刘海右侧可用区 = \(screen.auxiliaryTopRightArea.map(NSStringFromRect) ?? "无刘海")")
+                        lines.append("能否点到 = \(AppDelegate.isReachable(window))")
+                    } else {
+                        lines.append("⚠︎ 按钮窗口没有关联屏幕 — 图标很可能被挤掉了")
+                    }
+                } else {
+                    lines.append("⚠︎ 按钮没有窗口 — 状态项没有真正显示")
+                }
+                let path = Config.directory.appendingPathComponent("last-launch.log")
+                try? FileManager.default.createDirectory(at: Config.directory,
+                                                         withIntermediateDirectories: true)
+                try? lines.joined(separator: "\n").write(to: path, atomically: true, encoding: .utf8)
+            }
+        }
+    }
+
+    /// Re-launching the app (double-clicking it in Finder) has no visible effect
+    /// for a menu bar app — macOS just activates the existing instance. Treat it
+    /// as "show me the panel" instead.
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows: Bool) -> Bool {
+        showPanel()
+        return true
+    }
+
+    private func updateStatusTitle() {
+        guard let button = statusItem.button else { return }
+        let symbolName: String
+        var tint: NSColor = .labelColor
+        var text = "—"
+
+        if let headline = store.headline {
+            // The needle tracks what is left, so a full gauge means plenty of quota.
+            text = "\(Int(headline.remaining))%"
+            switch headline.remaining {
+            case ..<10: symbolName = "gauge.with.dots.needle.33percent"; tint = .systemRed
+            case ..<25: symbolName = "gauge.with.dots.needle.33percent"; tint = .systemOrange
+            case ..<60: symbolName = "gauge.with.dots.needle.67percent"
+            default: symbolName = "gauge.with.dots.needle.100percent"
+            }
+        } else if store.hasError {
+            symbolName = "exclamationmark.triangle"
+            tint = .systemOrange
+            text = ""
+        } else {
+            symbolName = "gauge.with.dots.needle.33percent"
+        }
+
+        let config = NSImage.SymbolConfiguration(pointSize: 13, weight: .regular)
+        button.image = NSImage(systemSymbolName: symbolName, accessibilityDescription: "AI 配额")?
+            .withSymbolConfiguration(config)
+        button.imagePosition = text.isEmpty ? .imageOnly : .imageLeading
+        button.attributedTitle = NSAttributedString(
+            string: text.isEmpty ? "" : " \(text)",
+            attributes: [
+                .font: NSFont.monospacedDigitSystemFont(ofSize: 12, weight: .medium),
+                .foregroundColor: tint,
+            ])
+        button.toolTip = store.snapshot.cards
+            .map { card -> String in
+                if let error = card.error { return "\(card.name): \(error)" }
+                let parts = card.windows.map { w -> String in
+                    if let remaining = w.remainingPercent {
+                        return "\(w.label) 剩余 \(Int(remaining))%"
+                    }
+                    return "\(w.label) \(w.value ?? "")"
+                }
+                return "\(card.name): " + parts.joined(separator: ", ")
+            }
+            .joined(separator: "\n")
+    }
+
+    @objc private func togglePopover() {
+        if popover.isShown {
+            popover.performClose(nil)
+        } else {
+            showPanel()
+        }
+    }
+
+    /// Anchors the popover to the menu bar icon when that icon is actually on
+    /// screen, and otherwise opens the same view as a free-standing window —
+    /// so a crowded or notched menu bar never leaves the app unreachable.
+    private func showPanel() {
+        Task { await store.refresh() }
+
+        if let button = statusItem.button, statusItem.isVisible,
+           let window = button.window, AppDelegate.isReachable(window) {
+            popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
+            popover.contentViewController?.view.window?.makeKey()
+            return
+        }
+        showFallbackWindow()
+    }
+
+    /// True when the menu bar button is somewhere the user can actually click.
+    ///
+    /// On notched displays the usable menu bar is split into two auxiliary areas
+    /// either side of the camera housing. A crowded bar can push a status item
+    /// into the gap between them, where it stays "visible" to AppKit but is
+    /// hidden behind the notch.
+    static func isReachable(_ window: NSWindow) -> Bool {
+        guard let screen = window.screen else { return false }
+        guard screen.frame.contains(window.frame.origin) else { return false }
+
+        let areas = [screen.auxiliaryTopLeftArea, screen.auxiliaryTopRightArea].compactMap { $0 }
+        guard !areas.isEmpty else { return true }  // no notch on this display
+
+        // Require most of the button to sit inside one of the usable areas.
+        return areas.contains { area in
+            let overlap = area.intersection(window.frame)
+            return overlap.width >= window.frame.width * 0.9
+        }
+    }
+
+    private func showFallbackWindow() {
+        if let panelWindow {
+            panelWindow.makeKeyAndOrderFront(nil)
+            NSApp.activate(ignoringOtherApps: true)
+            return
+        }
+        // A ScrollView has no intrinsic height, so in a window it collapses to
+        // nothing — the popover gets its height from the anchor instead. Give the
+        // windowed variant an explicit size and let the user resize from there.
+        let hosting = NSHostingController(
+            rootView: PopoverView(store: store,
+                                  onQuit: { NSApp.terminate(nil) },
+                                  onOpenSettings: { [weak self] in self?.openSettings() })
+                .frame(width: 340, height: 520)
+        )
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 340, height: 520),
+                              styleMask: [.titled, .closable, .resizable],
+                              backing: .buffered, defer: false)
+        window.contentViewController = hosting
+        window.title = AppInfo.name
+        window.level = .floating
+        window.isReleasedWhenClosed = false
+        window.center()
+        panelWindow = window
+        window.makeKeyAndOrderFront(nil)
+        NSApp.activate(ignoringOtherApps: true)
+    }
+
+    private func openSettings() {
+        if let settingsWindow {
+            settingsWindow.makeKeyAndOrderFront(nil)
+            NSApp.activate(ignoringOtherApps: true)
+            return
+        }
+        let hosting = NSHostingController(rootView: SettingsView(store: store))
+        let window = NSWindow(contentViewController: hosting)
+        window.title = "\(AppInfo.name) 设置"
+        window.styleMask = [.titled, .closable]
+        window.isReleasedWhenClosed = false
+        window.center()
+        settingsWindow = window
+        window.makeKeyAndOrderFront(nil)
+        NSApp.activate(ignoringOtherApps: true)
+    }
+}
+
+let app = NSApplication.shared
+app.setActivationPolicy(.accessory)  // menu bar only, no Dock icon
+// Top-level code already runs on the main thread; this just tells the compiler.
+let delegate = MainActor.assumeIsolated { AppDelegate() }
+app.delegate = delegate
+app.run()
