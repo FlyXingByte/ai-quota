@@ -5,7 +5,9 @@ import SwiftUI
 
 // MARK: - Headless modes (used for verification and troubleshooting)
 
-let args = CommandLine.arguments
+// ProcessInfo rather than CommandLine.arguments: the latter is a static var, and
+// reading shared mutable state is a concurrency warning on Swift 5.x toolchains.
+let args = ProcessInfo.processInfo.arguments
 
 if args.contains("--help") || args.contains("-h") {
     print("\(AppInfo.name) \(AppInfo.version)\n")
@@ -233,7 +235,10 @@ if args.contains("--probe") {
 if let dumpIndex = args.firstIndex(of: "--dump") {
     let which = dumpIndex + 1 < args.count ? args[dumpIndex + 1] : "opencode"
     let semaphore = DispatchSemaphore(value: 0)
-    Task {
+    // Detached on purpose: top-level code is main-actor isolated in Swift 5
+    // mode, and this block hands raw JSON dictionaries and URLSession delegates
+    // across that boundary. None of it needs the main actor.
+    Task.detached {
         switch which {
         case "opencode", "billing":
             let cfg = Config.load()
