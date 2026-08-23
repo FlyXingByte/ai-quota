@@ -27,6 +27,9 @@
 - 补上 README 英文版与语言切换；修正 README 里已经过时的签名说明，恢复 `make-signing-cert.sh` 的位置。
 - 配额请求显式使用 `.reloadIgnoringLocalCacheData`，不从缓存取数。
 - 删除死代码 `ProviderCard.headlineWindow` 与 `FeedbackTone.warning`。
+- 新增 `scripts/notarize-release.sh`：Developer ID 签名 + Apple 公证 + 装订的完整发布流水线。
+  `build.sh` 在使用 Developer ID 身份时自动加上 hardened runtime 与安全时间戳（缺任一都会被公证拒绝），
+  并且不再对分发签名用 `--deep`。
 
 ## 1.3.2
 

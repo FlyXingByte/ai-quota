@@ -72,7 +72,8 @@
 2. 打开 DMG，把 `AI Quota.app` 拖到 `Applications`。
 3. 从“应用程序”打开 AI Quota，按首次配置向导完成设置。
 
-> 这是 Apple Silicon Beta 构建，要求 macOS 14+。当前使用严格可验证的 ad-hoc 签名，但尚未经过 Apple 公证。
+> 这是 Apple Silicon 构建，要求 macOS 14+。当前的预编译产物**尚未经过 Apple 公证**，
+> 首次打开需要右键 →「打开」，或 `xattr -d com.apple.quarantine "/Applications/AI Quota.app"`。
 
 ## 第一次使用
 
@@ -191,12 +192,35 @@ codesign 并不要求链信任。没有它时构建会回退到 ad-hoc，并明�
 
 ## 生成 Release 资产
 
+本地构建（仅供自己使用）：
+
 ```bash
-./scripts/create-release.sh 1.3.0-beta.1
-./scripts/verify-release.sh 1.3.0-beta.1
+./scripts/create-release.sh 1.4.0
+./scripts/verify-release.sh 1.4.0
 ```
 
-输出包括 ZIP、DMG 和 SHA-256 文件。
+面向外部用户，必须走 Developer ID 签名 + Apple 公证——否则别人下载后会被 Gatekeeper 拦下：
+
+```bash
+./scripts/notarize-release.sh 1.4.0
+```
+
+它会用 Developer ID 证书重新签名（带 hardened runtime 与安全时间戳，缺任一 Apple 都会拒绝），
+提交公证并等待结果，装订（staple）到 App 和 DMG 上，最后按 Gatekeeper 的方式验证一遍。
+装订后的资产**离线也能通过校验**。
+
+需要一次性准备两样东西（脚本会检查并给出具体步骤）：
+
+1. **Developer ID Application 证书**——需要 Apple Developer Program 会员（$99/年）。
+   在 Xcode → Settings → Accounts → Manage Certificates 里创建，导入登录钥匙串。
+2. **公证凭据**——用 App 专用密码存进钥匙串：
+
+   ```bash
+   xcrun notarytool store-credentials "AI Quota Notary" \
+     --apple-id <你的 Apple ID> --team-id <TEAMID> --password <App 专用密码>
+   ```
+
+两者都不在仓库里，也不该进仓库。
 
 <details>
 <summary><strong>常用诊断命令</strong></summary>

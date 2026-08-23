@@ -73,7 +73,9 @@ app, and any other locale falls back to English. Nothing needs to be configured.
 2. Open the DMG and drag `AI Quota.app` into `Applications`.
 3. Launch AI Quota from Applications and follow the first-run setup.
 
-> This is an Apple Silicon beta build and requires macOS 14+. It is ad-hoc signed and not yet notarized by Apple.
+> An Apple Silicon build, macOS 14+. The current prebuilt assets are **not yet notarized by Apple**:
+> right-click → Open the first time, or run
+> `xattr -d com.apple.quarantine "/Applications/AI Quota.app"`.
 
 ## First run
 
@@ -203,12 +205,39 @@ which survives rebuilds. The certificate is **not** installed as a trusted root;
 
 ## Building release assets
 
+A local build, for your own machine only:
+
 ```bash
-./scripts/create-release.sh 1.3.0-beta.1
-./scripts/verify-release.sh 1.3.0-beta.1
+./scripts/create-release.sh 1.4.0
+./scripts/verify-release.sh 1.4.0
 ```
 
-The output is a ZIP, a DMG, and a SHA-256 file.
+For anyone else, the build has to be Developer ID signed and notarized by Apple —
+otherwise Gatekeeper stops it on every other Mac:
+
+```bash
+./scripts/notarize-release.sh 1.4.0
+```
+
+That re-signs with the Developer ID certificate (hardened runtime and secure
+timestamp — Apple rejects a submission missing either), submits for
+notarization and waits, staples the ticket onto both the app and the disk image,
+and verifies the result the way Gatekeeper will. Stapled assets pass **offline**.
+
+Two things have to exist first; the script checks for both and prints the exact
+steps when they don't:
+
+1. **A Developer ID Application certificate** — requires Apple Developer Program
+   membership ($99/year). Create it in Xcode → Settings → Accounts → Manage
+   Certificates and import it into your login keychain.
+2. **Notary credentials**, stored in the keychain with an app-specific password:
+
+   ```bash
+   xcrun notarytool store-credentials "AI Quota Notary" \
+     --apple-id <your Apple ID> --team-id <TEAMID> --password <app-specific password>
+   ```
+
+Neither lives in this repository, and neither should.
 
 <details>
 <summary><strong>Diagnostic commands</strong></summary>
