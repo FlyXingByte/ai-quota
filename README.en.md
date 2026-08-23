@@ -71,11 +71,61 @@ app, and any other locale falls back to English. Nothing needs to be configured.
    - `AI-Quota-1.4.0-macOS-arm64.dmg` (recommended)
    - or `AI-Quota-1.4.0-macOS-arm64.zip`
 2. Open the DMG and drag `AI Quota.app` into `Applications`.
-3. Launch AI Quota from Applications and follow the first-run setup.
+3. Launch AI Quota from Applications — macOS blocks the first launch; see [First launch](#first-launch).
+4. Once approved, follow the first-run setup.
 
-> An Apple Silicon build, macOS 14+. The current prebuilt assets are **not yet notarized by Apple**:
-> right-click → Open the first time, or run
-> `xattr -d com.apple.quarantine "/Applications/AI Quota.app"`.
+> **Apple Silicon · macOS 14+ · not notarized by Apple**
+> This app is self-distributed without notarization, so the first launch needs
+> one manual approval. See [First launch](#first-launch) — 30 seconds, once;
+> later updates are not blocked again.
+
+## First launch
+
+These builds are signed with a local certificate and **not notarized by Apple**,
+so macOS blocks the first launch. Approve it once and later updates of the same
+app open normally.
+
+**macOS 15 and later (including macOS 26)** — Apple removed the old
+right-click → Open shortcut, so this goes through System Settings:
+
+1. Double-click AI Quota as usual. You get a “cannot be opened” dialog; click Done.
+2. Open **System Settings → Privacy & Security** and scroll to Security.
+3. A line appears: *“AI Quota” was blocked to protect your Mac*. Click **Open Anyway**.
+4. Confirm with your password or Touch ID.
+
+**macOS 14**: right-click `AI Quota.app` → Open → Open again in the dialog.
+
+**One command instead** (any version):
+
+```bash
+xattr -d com.apple.quarantine "/Applications/AI Quota.app"
+```
+
+The quarantine flag is attached by your browser at download time; removing it
+tells macOS you vouch for this copy.
+
+**Check the checksum first** — it is an unnotarized binary, so the ten seconds
+are worth it:
+
+```bash
+shasum -a 256 ~/Downloads/AI-Quota-*.dmg
+```
+
+Compare against `AI-Quota-<version>-SHA256.txt` on the release page.
+
+<details>
+<summary>Why isn’t it notarized?</summary>
+
+Notarization requires a Developer ID certificate, which requires Apple Developer
+Program membership ($99/year). This is a small local utility and has not paid for
+one. The full pipeline is in the repository (`scripts/notarize-release.sh`); with
+a certificate it is a single command away.
+
+Worth stating plainly: Developer ID is **not** the App Store certificate — it is
+specifically the one for distributing outside the App Store. “GitHub only” does
+not avoid it.
+
+</details>
 
 ## First run
 
@@ -212,8 +262,10 @@ A local build, for your own machine only:
 ./scripts/verify-release.sh 1.4.1
 ```
 
-For anyone else, the build has to be Developer ID signed and notarized by Apple —
-otherwise Gatekeeper stops it on every other Mac:
+That is what the published assets use today: unnotarized, with one manual
+approval on first launch.
+
+With a Developer ID certificate, this produces assets Gatekeeper does not stop:
 
 ```bash
 ./scripts/notarize-release.sh 1.4.1

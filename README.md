@@ -70,10 +70,54 @@
    - `AI-Quota-1.4.0-macOS-arm64.dmg`（推荐）
    - 或 `AI-Quota-1.4.0-macOS-arm64.zip`
 2. 打开 DMG，把 `AI Quota.app` 拖到 `Applications`。
-3. 从“应用程序”打开 AI Quota，按首次配置向导完成设置。
+3. 从“应用程序”打开 AI Quota——首次会被系统拦一次，见下面的[首次打开](#首次打开)。
+4. 放行后按首次配置向导完成设置。
 
-> 这是 Apple Silicon 构建，要求 macOS 14+。当前的预编译产物**尚未经过 Apple 公证**，
-> 首次打开需要右键 →「打开」，或 `xattr -d com.apple.quarantine "/Applications/AI Quota.app"`。
+> **Apple Silicon · macOS 14+ · 未经 Apple 公证**
+> 本项目自行分发，不做公证，因此首次打开需要手动放行一次。做法见下面的
+> [首次打开](#首次打开)，30 秒完成，之后每次更新都不用再做。
+
+## 首次打开
+
+这些产物用本地证书签名，**没有经过 Apple 公证**，所以 macOS 第一次会拦下来。放行一次即可，
+之后升级同一个 App 不会再拦。
+
+**macOS 15 及以上（含 macOS 26）**——旧的「右键 →打开」已经被 Apple 移除，走系统设置：
+
+1. 正常双击打开 AI Quota，会看到「无法打开」的提示，点「完成」。
+2. 打开 **系统设置 → 隐私与安全性**，往下滚到「安全性」。
+3. 会出现一行「已阻止 "AI Quota" 使用，因为来自身份不明的开发者」，点 **仍要打开**。
+4. 再次确认，输入密码或 Touch ID。
+
+**macOS 14**：右键点击 `AI Quota.app` →「打开」→ 在弹窗里再点「打开」。
+
+**命令行一步到位**（任意版本）：
+
+```bash
+xattr -d com.apple.quarantine "/Applications/AI Quota.app"
+```
+
+隔离标记是浏览器下载时打上的，删掉它就等于告诉系统「这个我认」。
+
+**建议先核对校验和**——毕竟这是一个未公证的二进制，值得多花十秒：
+
+```bash
+shasum -a 256 ~/Downloads/AI-Quota-*.dmg
+```
+
+和 Release 页面上的 `AI-Quota-<版本>-SHA256.txt` 比对。
+
+<details>
+<summary>为什么不公证？</summary>
+
+公证需要 Developer ID 证书，而 Developer ID 证书需要 Apple Developer Program 会员（$99/年）。
+这个项目是本地小工具，没有为此付费。仓库里保留了完整的公证流水线
+（`scripts/notarize-release.sh`），一旦有了证书，一条命令就能产出免拦截的产物。
+
+值得说明的是：Developer ID **不是**上架 App Store 用的证书，它恰恰是给「自行分发」准备的。
+所以「只放 GitHub」并不能绕开它。
+
+</details>
 
 ## 第一次使用
 
@@ -199,7 +243,9 @@ codesign 并不要求链信任。没有它时构建会回退到 ad-hoc，并明�
 ./scripts/verify-release.sh 1.4.1
 ```
 
-面向外部用户，必须走 Developer ID 签名 + Apple 公证——否则别人下载后会被 Gatekeeper 拦下：
+当前发布的产物走的就是上面这条，未公证；下载者按[首次打开](#首次打开)放行一次即可。
+
+如果将来拿到了 Developer ID 证书，下面这条能产出**不会被拦**的产物：
 
 ```bash
 ./scripts/notarize-release.sh 1.4.1
@@ -263,7 +309,7 @@ OpenCode 没有公开额度 API，因此 AI Quota 会复制 Chrome Cookie SQLite
 - OpenCode 页面结构变化后可能需要更新解析器。
 - Claude 使用 Claude Code 当前登录状态；令牌过期时由 Claude Code 自己刷新。
 - DeepSeek 仅提供余额，不提供网页控制台中的详细 Token 曲线。
-- Beta 构建未经过 Apple 公证；大规模分发前应使用 Developer ID 并完成 notarization。
+- 产物未经过 Apple 公证，首次打开需手动放行一次（见[首次打开](#首次打开)）。
 - Fork 若要以自己的产品名发布，应修改 `com.flyx.aiquota` Bundle ID。
 
 ## License
