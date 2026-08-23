@@ -90,8 +90,22 @@ done
 # once (97c41ee fixed it, 914dfe8 brought it back); check `codesign -d -r-`
 # before touching it again.
 SIGN_ID="${AIQUOTA_SIGN_IDENTITY:-AI Quota Local Signing}"
+
+# A Developer ID signature is a distribution signature: Apple will not notarize
+# one without the hardened runtime, and will not accept it later without a
+# secure timestamp. Neither belongs on the local identity — a self-signed
+# certificate has no chain a timestamp authority would vouch for.
+#
+# No --deep either: it is the wrong tool for signing a distribution bundle, and
+# this one has no nested code for it to reach anyway.
+SIGN_FLAGS=(--force)
+case "$SIGN_ID" in
+  "Developer ID Application"*) SIGN_FLAGS+=(--options runtime --timestamp) ;;
+  *)                           SIGN_FLAGS+=(--deep) ;;
+esac
+
 if security find-identity -p codesigning 2>/dev/null | grep -Fq "\"$SIGN_ID\"" \
-   && codesign --force --deep --sign "$SIGN_ID" "$APP" 2>/dev/null \
+   && codesign "${SIGN_FLAGS[@]}" --sign "$SIGN_ID" "$APP" 2>/dev/null \
    && codesign --verify --deep --strict "$APP" 2>/dev/null; then
   echo "==> 签名 ($SIGN_ID)"
 else
